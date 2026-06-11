@@ -1,0 +1,31 @@
+# http://editorconfig.org
+root = true
+
+# Global defaults for all files
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# Specific overrides for Rust source files
+[*.rs]
+indent_style = space
+indent_size = 4
+max_line_length = 100
+
+# Specific overrides for configuration files
+[*.toml]
+indent_style = space
+indent_size = 2
+
+# Specific overrides for web files (if building a frontend or WASM app)
+[*.{js,ts,jsx,tsx,html,css,json}]
+indent_style = space
+indent_size = 2
+
+# Markdown specific overrides
+[*.md]
+trim_trailing_whitespace = false
