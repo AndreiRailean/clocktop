@@ -1,17 +1,17 @@
 use chrono::Local;
 use crossterm::{
-    event::{self, Event, KeyCode},
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
+    event::{self, Event, KeyCode},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
+    Terminal,
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout},
-    widgets::{Paragraph},
-    Terminal,
+    widgets::Paragraph,
 };
-use std::time::Duration;
 use std::io::{self, stdout};
+use std::time::Duration;
 
 mod digits;
 use digits::DIGITS;
@@ -32,7 +32,6 @@ fn main() -> io::Result<()> {
                 ])
                 .split(frame.area());
 
-
             let time_str = Local::now().format("%H:%M:%S").to_string();
 
             let mut large_lines = vec![String::new(); 5];
@@ -41,25 +40,27 @@ fn main() -> io::Result<()> {
                 if let Some((_, pattern)) = DIGITS.iter().find(|(c, _)| **c == ch) {
                     for row in 0..5 {
                         large_lines[row].push_str(pattern[row]);
-                        large_lines[row].push_str(" ");
+                        large_lines[row].push(' ');
                     }
                 }
             }
 
             let large_clock_text = large_lines.join("\n");
 
-            let clock_widget = Paragraph::new(large_clock_text)
-                .alignment(Alignment::Center);
+            let clock_widget = Paragraph::new(large_clock_text).alignment(Alignment::Center);
 
             frame.render_widget(clock_widget, chunks[1]);
         })?;
 
-        if event::poll(Duration::from_millis(250))? {
-            if let Event::Key(key) = event::read()? {
-                if key.code == KeyCode::Char('q') || (key.code ==KeyCode::Char('c') && key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)) {
-                    break;
-                }
-            }
+        if event::poll(Duration::from_millis(250))?
+            && let Event::Key(key) = event::read()?
+            && (key.code == KeyCode::Char('q')
+                || (key.code == KeyCode::Char('c')
+                    && key
+                        .modifiers
+                        .contains(crossterm::event::KeyModifiers::CONTROL)))
+        {
+            break;
         }
     }
 
