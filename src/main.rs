@@ -112,7 +112,7 @@ fn main() -> io::Result<()> {
                 .split(frame.area());
 
             let now = Local::now();
-            let mut text_color = Color::Reset;
+            let mut text_color = Color::Gray;
 
             let display_str = match app_mode {
                 AppMode::Clock => {
@@ -130,7 +130,7 @@ fn main() -> io::Result<()> {
                     };
 
                     let should_hide = is_in_blink_window
-                    && matches!(&milli, 100..=149 | 200..=249 | 500..=549 | 600..=649 | 700..=749 | 800..=849);
+                    && matches!(&milli, 100..=149 | 500..=549 | 600..=649 | 700..=749 | 800..=849);
                     //((250..499).contains(&milli) || milli >= 750);
 
                     if should_hide {
@@ -189,9 +189,9 @@ fn main() -> io::Result<()> {
             for row in 0..5 {
                 final_lines.push(Line::from(vec![
                     Span::styled(hour_rows[row].clone(), Style::default().fg(text_color)),
-                    Span::styled(sep1_rows[row].clone(), Style::default().fg(Color::DarkGray)), // Dimmed Separator
+                    Span::styled(sep1_rows[row].clone(), Style::default().fg(Color::DarkGray)),
                     Span::styled(min_rows[row].clone(), Style::default().fg(text_color)),
-                    Span::styled(sep2_rows[row].clone(), Style::default().fg(Color::DarkGray)), // Dimmed Separator
+                    Span::styled(sep2_rows[row].clone(), Style::default().fg(Color::DarkGray)),
                     Span::styled(sec_rows[row].clone(), Style::default().fg(text_color)),
                 ]));
             }
@@ -208,12 +208,12 @@ fn main() -> io::Result<()> {
             }
 
             let hint_text = match app_mode {
-                AppMode::Clock => format!("[c] Timer{} | [q] Quit", runtime_status),
+                AppMode::Clock => format!("Timer: c{} | Quit: q", runtime_status),
 
                 AppMode::Countdown => match timer_state {
-                    TimerState::Running => "[Space] Pause | [r] Reset | [c] Clock Mode | [q] Quit".to_string(),
-                    TimerState::Paused => "[Space] Resume | [r] Reset | [c] Clock Mode | [q] Quit".to_string(),
-                    TimerState::Finished => "[r] Reset | [c] Clock Mode | [q] Quit".to_string(),
+                    TimerState::Running => "Pause: <space> | Reset: r | Clock: c | Quit: q".to_string(),
+                    TimerState::Paused => "Resume: <space> | Reset: r | Clock: c | Quit: q".to_string(),
+                    TimerState::Finished => "Reset: r | Clock: c | Quit: q".to_string(),
                 },
             };
 
