@@ -7,6 +7,7 @@ edition = "2024"
 chrono = "0.4.45"
 clap = { version = "4.6.1", features = ["derive"] }
 crossterm = "0.29.0"
+duration-str = "0.21.0"
 ratatui = "0.30.1"
 
 [profile.release]
