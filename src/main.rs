@@ -96,10 +96,7 @@ fn main() -> io::Result<()> {
         terminal.draw(|frame| {
             let main_chunks = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Min(1),
-                    Constraint::Length(1),
-                ])
+                .constraints([Constraint::Min(1), Constraint::Length(1)])
                 .split(frame.area());
 
             let clock_chunks = Layout::default()
@@ -129,14 +126,19 @@ fn main() -> io::Result<()> {
                         None => false,
                     };
 
-                    let should_hide = is_in_blink_window
-                    && matches!(&milli, 100..=149 | 500..=549 | 600..=649 | 700..=749 | 800..=849);
-                    //((250..499).contains(&milli) || milli >= 750);
+                    let should_hide =
+                        is_in_blink_window && matches!(&milli, 150..=250 | 450..=650 | 750..=950);
+
+                    let should_hide_separator = !(200..800).contains(&milli);
 
                     if should_hide {
                         "".to_string()
                     } else {
-                        now.format("%H:%M:%S").to_string()
+                        if should_hide_separator {
+                            now.format("%H %M %S").to_string()
+                        } else {
+                            now.format("%H:%M:%S").to_string()
+                        }
                     }
                 }
                 AppMode::Countdown => {
@@ -147,7 +149,11 @@ fn main() -> io::Result<()> {
                     if timer_state == TimerState::Finished {
                         text_color = Color::Red;
                         let milli = now.nanosecond() / 1_000_000;
-                        if milli < 500 { "00:00:00".to_string() } else { "".to_string() }
+                        if milli < 500 {
+                            "00:00:00".to_string()
+                        } else {
+                            "".to_string()
+                        }
                     } else if timer_state == TimerState::Paused {
                         text_color = Color::Yellow;
                         format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
@@ -160,9 +166,9 @@ fn main() -> io::Result<()> {
 
             let hour_str = display_str.get(0..2).unwrap_or("");
             let sep1_str = display_str.get(2..3).unwrap_or("");
-            let min_str  = display_str.get(3..5).unwrap_or("");
+            let min_str = display_str.get(3..5).unwrap_or("");
             let sep2_str = display_str.get(5..6).unwrap_or("");
-            let sec_str  = display_str.get(6..8).unwrap_or("");
+            let sec_str = display_str.get(6..8).unwrap_or("");
 
             let build_block = |sub_str: &str| -> Vec<String> {
                 let mut large_lines = vec![String::new(); 5];
@@ -179,9 +185,9 @@ fn main() -> io::Result<()> {
 
             let hour_rows = build_block(hour_str);
             let sep1_rows = build_block(sep1_str);
-            let min_rows  = build_block(min_str);
+            let min_rows = build_block(min_str);
             let sep2_rows = build_block(sep2_str);
-            let sec_rows  = build_block(sec_str);
+            let sec_rows = build_block(sec_str);
 
             use ratatui::text::{Line, Span};
             let mut final_lines: Vec<Line> = Vec::new();
@@ -196,7 +202,9 @@ fn main() -> io::Result<()> {
                 ]));
             }
 
-            let clock_widget = Paragraph::new(final_lines).alignment(Alignment::Center).style(Style::default().fg(text_color));
+            let clock_widget = Paragraph::new(final_lines)
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(text_color));
             frame.render_widget(clock_widget, clock_chunks[1]);
 
             let mut runtime_status = String::new();
@@ -211,8 +219,12 @@ fn main() -> io::Result<()> {
                 AppMode::Clock => format!("Timer: c{} | Quit: q", runtime_status),
 
                 AppMode::Countdown => match timer_state {
-                    TimerState::Running => "Pause: <space> | Reset: r | Clock: c | Quit: q".to_string(),
-                    TimerState::Paused => "Resume: <space> | Reset: r | Clock: c | Quit: q".to_string(),
+                    TimerState::Running => {
+                        "Pause: <space> | Reset: r | Clock: c | Quit: q".to_string()
+                    }
+                    TimerState::Paused => {
+                        "Resume: <space> | Reset: r | Clock: c | Quit: q".to_string()
+                    }
                     TimerState::Finished => "Reset: r | Clock: c | Quit: q".to_string(),
                 },
             };
