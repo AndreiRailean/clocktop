@@ -9,17 +9,25 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 
+use log::{debug, error, info};
+use simplelog::{Config as LogConfig, LevelFilter, WriteLogger};
+
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout},
     style::{Color, Style},
+    text::{Line, Span},
     widgets::Paragraph,
 };
+use serde::Deserialize;
+use std::fs::{self, File};
 use std::io::{self, stdout};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-#[derive(Debug, Clone, Copy, ValueEnum, PartialEq)]
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Deserialize)]
+#[serde(rename_all = "lowercase")]
 enum BlinkInterval {
     Hour,
     Half,
@@ -40,14 +48,47 @@ enum TimerState {
     Finished,
 }
 
+#[derive(Deserialize, Default, Debug)]
+struct Config {
+    blink: Option<BlinkInterval>,
+    default_timer: Option<String>,
+}
+
 #[derive(Parser, Debug)]
 #[command(name = "clocktop", version, about = "Terminal clock widget")]
 struct Cli {
     #[arg(short, long, value_enum)]
     blink: Option<BlinkInterval>,
 
-    #[arg(short, long, num_args(0..=1), default_missing_value = "25m")]
+    #[arg(short, long, num_args(0..=1))]
     timer: Option<String>,
+}
+
+fn get_config_path() -> PathBuf {
+    let mut path = std::env::var("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            let home = std::env::var("HOME").unwrap_or_default();
+            PathBuf::from(home).join(".config")
+        });
+    path.push("clocktop");
+    path.push("config.toml");
+    path
+}
+
+fn load_config() -> Config {
+    let path = get_config_path();
+    debug!("Looking for config file at: {:?}", path);
+
+    if path.exists() {
+        if let Ok(content) = fs::read_to_string(path) {
+            if let Ok(config) = toml::from_str(&&content) {
+                return config;
+            }
+        }
+    }
+    info!("No configuration file found or failed to parse. Using defaults.");
+    Config::default()
 }
 
 fn parse_timer_string(s: &str) -> u64 {
@@ -57,22 +98,47 @@ fn parse_timer_string(s: &str) -> u64 {
 }
 
 fn main() -> io::Result<()> {
+    let log_level = if cfg!(debug_assertions) {
+        LevelFilter::Debug
+    } else {
+        LevelFilter::Error
+    };
+
+    #[cfg(debug_assertions)]
+    let _ = WriteLogger::init(
+        log_level,
+        LogConfig::default(),
+        File::create("clocktop.log")?,
+    );
+
+    info!("Starting clocktop application...");
+
     let cli = Cli::parse();
+    let config = load_config();
+
+    let chosen_blink = cli.blink.or(config.blink);
 
     let mut app_mode = AppMode::Clock;
-    let mut initial_duration_secs = 25 * 60;
     let mut timer_state = TimerState::Paused;
+
+    let raw_timer_str = cli
+        .timer
+        .or(config.default_timer)
+        .unwrap_or_else(|| "25m".to_string());
+
+    let initial_duration_secs = parse_timer_string(&raw_timer_str);
     let mut remaining_secs = initial_duration_secs;
 
-    if let Some(ref timer_str) = cli.timer {
-        let parsed_secs = parse_timer_string(timer_str);
-        if parsed_secs > 0 {
-            remaining_secs = parsed_secs;
-            initial_duration_secs = parsed_secs;
-            timer_state = TimerState::Running;
+    if std::env::args().any(|arg| arg == "-t" || arg == "--timer") {
+        if initial_duration_secs > 0 {
             app_mode = AppMode::Countdown;
+            timer_state = TimerState::Running;
+            debug!(
+                "Timer activated on launch. Value: {} seconds",
+                initial_duration_secs
+            );
         }
-    }
+    };
 
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
@@ -88,6 +154,7 @@ fn main() -> io::Result<()> {
                     remaining_secs -= 1;
                 } else {
                     timer_state = TimerState::Finished;
+                    info!("Timer reached zero! Alerting user.");
                 }
             }
             last_tick = now_instant
@@ -118,7 +185,7 @@ fn main() -> io::Result<()> {
                     let nano = now.nanosecond();
                     let milli = nano / 1_000_000;
 
-                    let is_in_blink_window = match cli.blink {
+                    let is_in_blink_window = match chosen_blink {
                         Some(BlinkInterval::Hour) => minute == 0 && second == 0,
                         Some(BlinkInterval::Half) => (minute == 0 || minute == 30) && second == 0,
                         Some(BlinkInterval::Quarter) => minute.is_multiple_of(15) && second == 0,
@@ -189,9 +256,7 @@ fn main() -> io::Result<()> {
             let sep2_rows = build_block(sep2_str);
             let sec_rows = build_block(sec_str);
 
-            use ratatui::text::{Line, Span};
             let mut final_lines: Vec<Line> = Vec::new();
-
             for row in 0..5 {
                 final_lines.push(Line::from(vec![
                     Span::styled(hour_rows[row].clone(), Style::default().fg(text_color)),
@@ -244,6 +309,7 @@ fn main() -> io::Result<()> {
                         .modifiers
                         .contains(crossterm::event::KeyModifiers::CONTROL))
             {
+                info!("Exit request received. Shutting down cleanly.");
                 break;
             }
 
