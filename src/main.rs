@@ -320,6 +320,8 @@ fn main() -> io::Result<()> {
                         AppMode::Countdown => AppMode::Clock,
                     }
                 }
+                KeyCode::Char('1') => app_mode = AppMode::Clock,
+                KeyCode::Char('2') => app_mode = AppMode::Countdown,
                 KeyCode::Char(' ') => {
                     if app_mode == AppMode::Countdown {
                         timer_state = match timer_state {
