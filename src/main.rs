@@ -1,13 +1,15 @@
 mod font;
 use font::FONT;
 
-use chrono::{Local, Timelike};
+use chrono::{DateTime, Local, Offset, Timelike, Utc};
+use chrono_tz::Tz;
 use clap::{Parser, ValueEnum};
 use crossterm::{
     ExecutableCommand,
     event::{self, Event, KeyCode},
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
+use iana_time_zone;
 
 use log::{debug, info};
 use simplelog::{Config as LogConfig, LevelFilter, WriteLogger};
@@ -19,7 +21,8 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{
-        Block, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap,
+        Block, Borders, Cell, Clear, Paragraph, Row, Scrollbar, ScrollbarOrientation,
+        ScrollbarState, Table, Wrap,
     },
 };
 
@@ -44,6 +47,7 @@ enum AppMode {
     Clock,
     Countdown,
     Stopwatch,
+    World,
 }
 
 #[derive(PartialEq, Debug)]
@@ -64,6 +68,8 @@ enum StopwatchState {
 struct Config {
     blink: Option<BlinkInterval>,
     default_timer: Option<String>,
+    timezone: Option<String>,
+    world_clocks: Option<Vec<String>>,
 }
 
 #[derive(Parser, Debug)]
@@ -74,6 +80,9 @@ struct Cli {
 
     #[arg(short, long, num_args(0..=1))]
     timer: Option<String>,
+
+    #[arg(short = 'z', long = "timezone")]
+    timezone: Option<String>,
 }
 
 fn get_config_path() -> PathBuf {
@@ -164,6 +173,18 @@ fn main() -> io::Result<()> {
 
     let chosen_blink = cli.blink.or(config.blink);
 
+    let tz_string_opt = cli.timezone.or(config.timezone).or_else(|| {
+        // FALLBACK: Dynamically discover the host machine's IANA timezone at runtime
+        iana_time_zone::get_timezone().ok()
+    });
+
+    let is_custom_tz = tz_string_opt.is_some();
+
+    let active_tz: Tz = tz_string_opt
+        .as_deref()
+        .and_then(|s| s.parse::<Tz>().ok())
+        .unwrap_or(chrono_tz::UTC);
+
     let mut app_mode = AppMode::Clock;
     let mut timer_state = TimerState::Paused;
 
@@ -201,6 +222,14 @@ fn main() -> io::Result<()> {
 
     let mut last_tick = Instant::now();
 
+    let world_clocks_list = config.world_clocks.unwrap_or_else(|| {
+        vec![
+            "America/New_York".to_string(),
+            "Europe/London".to_string(),
+            "Asia/Tokyo".to_string(),
+        ]
+    });
+
     loop {
         let now_instant = Instant::now();
         if now_instant.duration_since(last_tick) >= Duration::from_secs(1) {
@@ -231,6 +260,7 @@ fn main() -> io::Result<()> {
             let main_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
+                    Constraint::Length(1),
                     Constraint::Min(0),
                     Constraint::Length(3),
                     Constraint::Length(1),
@@ -245,17 +275,37 @@ fn main() -> io::Result<()> {
                     Constraint::Length(5),
                     Constraint::Min(0),
                 ])
-                .split(frame.area());
+                .split(main_chunks[1]);
 
-            let now = Local::now();
+            let zoned_now = Utc::now().with_timezone(&active_tz);
+            let minute = zoned_now.minute();
+            let second = zoned_now.second();
+            let milli = zoned_now.nanosecond() / 1_000_000;
+
+            // Extract a clean capitalized city label out from path zones
+            let zone_name = format!("{:?}", active_tz);
+            let city_clean = zone_name
+                .split("/")
+                .last()
+                .unwrap_or(&zone_name)
+                .replace('_', " ");
+            let header_label = format!("[ {} ]", city_clean.to_uppercase());
+            let header_date = zoned_now.format("%a, %b %d, %Y").to_string();
+            let formatted_time_digits = zoned_now.format("%H:%M:%S").to_string();
+
             let mut text_color = Color::Gray;
 
             let display_str = match app_mode {
                 AppMode::Clock => {
-                    let minute = now.minute();
-                    let second = now.second();
-                    let nano = now.nanosecond();
-                    let milli = nano / 1_000_000;
+                    let header_line = Line::from(vec![
+                        Span::styled(
+                            format!("{}  ", header_label),
+                            Style::default().fg(Color::Yellow),
+                        ),
+                        Span::styled(header_date, Style::default().fg(Color::DarkGray)),
+                    ]);
+                    let header_widget = Paragraph::new(header_line).alignment(Alignment::Center);
+                    frame.render_widget(header_widget, main_chunks[0]);
 
                     let is_in_blink_window = match chosen_blink {
                         Some(BlinkInterval::Hour) => minute == 0 && second == 0,
@@ -274,9 +324,9 @@ fn main() -> io::Result<()> {
                         "".to_string()
                     } else {
                         if should_hide_separator {
-                            now.format("%H %M %S").to_string()
+                            formatted_time_digits.replace(':', " ")
                         } else {
-                            now.format("%H:%M:%S").to_string()
+                            formatted_time_digits
                         }
                     }
                 }
@@ -287,7 +337,6 @@ fn main() -> io::Result<()> {
 
                     if timer_state == TimerState::Finished {
                         text_color = Color::Red;
-                        let milli = now.nanosecond() / 1_000_000;
                         if milli < 500 {
                             "00:00:00".to_string()
                         } else {
@@ -308,6 +357,98 @@ fn main() -> io::Result<()> {
                         StopwatchState::Running => text_color = Color::LightCyan,
                     }
                     format_stopwatch_duration(current_stopwatch_display_time, false)
+                }
+
+                AppMode::World => {
+                    let column_widths = [
+                        Constraint::Percentage(30),
+                        Constraint::Percentage(15),
+                        Constraint::Percentage(20),
+                        Constraint::Percentage(35),
+                    ];
+
+                    let header_row = Row::new(vec![
+                        Cell::from("  LOCATION").style(Style::default().fg(Color::DarkGray)),
+                        Cell::from("DIFF").style(Style::default().fg(Color::DarkGray)),
+                        Cell::from("TIME").style(Style::default().fg(Color::DarkGray)),
+                        Cell::from("DATE").style(Style::default().fg(Color::DarkGray)),
+                    ])
+                    .height(1);
+
+                    let mut data_rows = Vec::new();
+                    let mut tracked_zones = world_clocks_list.clone();
+
+                    let baseline_str = format!("{:?}", active_tz).replace("::", "/");
+                    if !tracked_zones.contains(&baseline_str) {
+                        tracked_zones.insert(0, baseline_str.clone());
+                    }
+
+                    for zone_str in tracked_zones {
+                        let target_tz: Tz = match zone_str.parse::<Tz>() {
+                            Ok(t) => t,
+                            Err(_) => continue,
+                        };
+
+                        let z_now = Utc::now().with_timezone(&target_tz);
+                        let base_now = Utc::now().with_timezone(&active_tz);
+
+                        let zone_name = format!("{:?}", target_tz);
+                        let clean_city = zone_name
+                            .split("/")
+                            .last()
+                            .unwrap_or(&zone_name)
+                            .replace('_', " ")
+                            .to_uppercase();
+
+                        let base_offset_secs = base_now.offset().fix().local_minus_utc();
+                        let target_offset_secs = z_now.offset().fix().local_minus_utc();
+                        let diff_secs = target_offset_secs - base_offset_secs;
+                        let diff_hours = diff_secs / 3600;
+
+                        let diff_str = if diff_hours == 0 {
+                            "".to_string()
+                        } else if diff_hours > 0 {
+                            format!("+{}h", diff_hours)
+                        } else {
+                            format!("{}h", diff_hours)
+                        };
+
+                        let is_primary = target_tz == active_tz;
+                        let (city_style, diff_style) = if is_primary {
+                            (
+                                Style::default()
+                                    .fg(Color::Yellow)
+                                    .add_modifier(Modifier::BOLD),
+                                Style::default().fg(Color::Yellow),
+                            )
+                        } else {
+                            (
+                                Style::default().fg(Color::Reset),
+                                Style::default().fg(Color::DarkGray),
+                            )
+                        };
+
+                        data_rows.push(
+                            Row::new(vec![
+                                Cell::from(format!("  {}", clean_city)).style(city_style),
+                                Cell::from(diff_str).style(diff_style),
+                                Cell::from(z_now.format("%H:%M").to_string())
+                                    .style(Style::default().fg(Color::LightGreen)),
+                                Cell::from(z_now.format("%a, %b %d").to_string())
+                                    .style(Style::default().fg(Color::DarkGray)),
+                            ])
+                            .height(1),
+                        );
+                    }
+
+                    let world_table = Table::new(data_rows, column_widths)
+                        .header(header_row)
+                        .block(Block::default().borders(Borders::NONE))
+                        .style(Style::default());
+
+                    frame.render_widget(world_table, main_chunks[1]);
+
+                    "".to_string()
                 }
             };
 
@@ -350,7 +491,6 @@ fn main() -> io::Result<()> {
 
             if app_mode == AppMode::Stopwatch && !stopwatch_laps.is_empty() {
                 let mut lap_lines = Vec::new();
-                // Pick the last 3 lap milestones recorded to fit cleanly into terminal layouts
                 let start_idx = stopwatch_laps.len().saturating_sub(3);
                 for (i, lap) in stopwatch_laps.iter().enumerate().skip(start_idx) {
                     lap_lines.push(Line::from(vec![
@@ -365,9 +505,10 @@ fn main() -> io::Result<()> {
                     ]));
                 }
                 let lap_widget = Paragraph::new(lap_lines).alignment(Alignment::Center);
-                frame.render_widget(lap_widget, main_chunks[1]);
+                frame.render_widget(lap_widget, main_chunks[2]);
             }
 
+            // Mode Menu
             mode_menu_buffer.clear();
             let mut needs_sep = false;
             match app_mode {
@@ -408,22 +549,70 @@ fn main() -> io::Result<()> {
                         }
                     }
                 },
+                _ => {}
             }
 
             let mode_menu_widget = Paragraph::new(mode_menu_buffer)
                 .alignment(Alignment::Center)
                 .style(Style::default().fg(Color::DarkGray));
-            frame.render_widget(mode_menu_widget, main_chunks[2]);
+            frame.render_widget(mode_menu_widget, main_chunks[3]);
 
-            let main_menu = "Clock: 1 | Timer: 2 | Stopwatch: 3 | Quit: q".to_string();
-            let main_menu_widget = Paragraph::new(main_menu)
-                .alignment(Alignment::Center)
-                .style(Style::default().fg(Color::DarkGray));
-            frame.render_widget(main_menu_widget, main_chunks[3]);
+            // Main Menu
+            let dim_style = Style::default().fg(Color::DarkGray);
+            let active_style = Style::default()
+                .fg(Color::Reset)
+                .add_modifier(Modifier::BOLD);
 
+            let main_menu_line = Line::from(vec![
+                Span::styled(
+                    "Clock",
+                    if app_mode == AppMode::Clock {
+                        active_style
+                    } else {
+                        dim_style
+                    },
+                ),
+                Span::styled(" 1", dim_style),
+                Span::styled(" | ", dim_style),
+                Span::styled(
+                    "Timer",
+                    if app_mode == AppMode::Countdown {
+                        active_style
+                    } else {
+                        dim_style
+                    },
+                ),
+                Span::styled(" 2", dim_style),
+                Span::styled(" | ", dim_style),
+                Span::styled(
+                    "Stopwatch",
+                    if app_mode == AppMode::Stopwatch {
+                        active_style
+                    } else {
+                        dim_style
+                    },
+                ),
+                Span::styled(" 3", dim_style),
+                Span::styled(" | ", dim_style),
+                Span::styled(
+                    "World",
+                    if app_mode == AppMode::World {
+                        active_style
+                    } else {
+                        dim_style
+                    },
+                ),
+                Span::styled(" 4", dim_style),
+                Span::styled(" | ", dim_style),
+                Span::styled("Quit q", dim_style),
+            ]);
+
+            let main_menu_widget = Paragraph::new(main_menu_line).alignment(Alignment::Center);
+            frame.render_widget(main_menu_widget, main_chunks[4]);
+
+            // Stopwatch Lap Overlay
             if app_mode == AppMode::Stopwatch && show_laps_overlay {
                 let area = centered_rect(60, 70, frame.area());
-                // Clear out background pixels underneath the overlay box boundary
                 frame.render_widget(Clear, area);
                 let mut overlay_lines = Vec::new();
                 for (i, lap) in stopwatch_laps.iter().enumerate() {
@@ -486,6 +675,7 @@ fn main() -> io::Result<()> {
             }
         })?;
 
+        // Keyboard input
         if event::poll(Duration::from_millis(16))?
             && let Event::Key(key) = event::read()?
         {
@@ -525,6 +715,7 @@ fn main() -> io::Result<()> {
                 KeyCode::Char('1') => app_mode = AppMode::Clock,
                 KeyCode::Char('2') => app_mode = AppMode::Countdown,
                 KeyCode::Char('3') => app_mode = AppMode::Stopwatch,
+                KeyCode::Char('4') => app_mode = AppMode::World,
                 KeyCode::Enter => {
                     if app_mode == AppMode::Stopwatch
                         && (stopwatch_state == StopwatchState::Paused
