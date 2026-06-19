@@ -216,15 +216,13 @@ fn main() -> io::Result<()> {
     let initial_duration_secs = parse_timer_string(&raw_timer_str);
     let mut remaining_secs = initial_duration_secs;
 
-    if std::env::args().any(|arg| arg == "-t" || arg == "--timer") {
-        if initial_duration_secs > 0 {
-            app_mode = AppMode::Countdown;
-            timer_state = TimerState::Running;
-            debug!(
-                "Timer activated on launch. Value: {} seconds",
-                initial_duration_secs
-            );
-        }
+    if std::env::args().any(|arg| arg == "-t" || arg == "--timer") && initial_duration_secs > 0 {
+        app_mode = AppMode::Countdown;
+        timer_state = TimerState::Running;
+        debug!(
+            "Timer activated on launch. Value: {} seconds",
+            initial_duration_secs
+        );
     };
 
     let mut stopwatch_state = StopwatchState::Idle;
@@ -302,7 +300,6 @@ fn main() -> io::Result<()> {
             let second = zoned_now.second();
             let milli = zoned_now.nanosecond() / 1_000_000;
 
-            // Extract a clean capitalized city label out from path zones
             let zone_name = format!("{:?}", active_tz);
             let city_clean = zone_name
                 .split("/")
@@ -456,13 +453,13 @@ fn main() -> io::Result<()> {
                                 Color::Cyan
                             } else {
                                 Color::LightCyan
-                            } // Dimmed clean blue shade variants
+                            }
                         };
 
                         let (dot_char, dot_color) = if is_daylight {
-                            ("○ ", Color::Yellow) // Solid yellow dot for day
+                            ("○ ", Color::Yellow)
                         } else {
-                            ("  ", Color::Blue) // Hollow blue dot for night
+                            ("  ", Color::Blue)
                         };
 
                         let mut city_style = Style::default().fg(main_color);
@@ -518,7 +515,7 @@ fn main() -> io::Result<()> {
                     if let Some((_, pattern)) = FONT.iter().find(|(c, _)| **c == ch) {
                         for row in 0..5 {
                             lines[row].push_str(pattern[row]);
-                            lines[row].push_str(" ");
+                            lines[row].push(' ');
                         }
                     }
                 }
