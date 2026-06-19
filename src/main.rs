@@ -70,6 +70,8 @@ struct Config {
     default_timer: Option<String>,
     timezone: Option<String>,
     world_clocks: Option<Vec<String>>,
+    daylight_start: Option<u32>,
+    daylight_end: Option<u32>,
 }
 
 #[derive(Parser, Debug)]
@@ -361,17 +363,15 @@ fn main() -> io::Result<()> {
 
                 AppMode::World => {
                     let column_widths = [
-                        Constraint::Percentage(30),
-                        Constraint::Percentage(15),
-                        Constraint::Percentage(20),
                         Constraint::Percentage(35),
+                        Constraint::Percentage(15),
+                        Constraint::Percentage(50),
                     ];
 
                     let header_row = Row::new(vec![
                         Cell::from("  LOCATION").style(Style::default().fg(Color::DarkGray)),
                         Cell::from("DIFF").style(Style::default().fg(Color::DarkGray)),
                         Cell::from("TIME").style(Style::default().fg(Color::DarkGray)),
-                        Cell::from("DATE").style(Style::default().fg(Color::DarkGray)),
                     ])
                     .height(1);
 
@@ -414,28 +414,62 @@ fn main() -> io::Result<()> {
                         };
 
                         let is_primary = target_tz == active_tz;
-                        let (city_style, diff_style) = if is_primary {
-                            (
-                                Style::default()
-                                    .fg(Color::Yellow)
-                                    .add_modifier(Modifier::BOLD),
-                                Style::default().fg(Color::Yellow),
-                            )
+
+                        let current_hour = z_now.hour();
+
+                        let daylight_start_hour = config.daylight_start.unwrap_or(6);
+                        let daylight_end_hour = config.daylight_end.unwrap_or(18);
+
+                        let is_daylight = if daylight_start_hour <= daylight_end_hour {
+                            current_hour >= daylight_start_hour && current_hour < daylight_end_hour
                         } else {
-                            (
-                                Style::default().fg(Color::Reset),
-                                Style::default().fg(Color::DarkGray),
-                            )
+                            // Handles overnight shifts gracefully if someone sets e.g. start=22, end=6
+                            current_hour >= daylight_start_hour || current_hour < daylight_end_hour
                         };
+
+                        let main_color = if is_daylight {
+                            if is_primary {
+                                Color::Yellow
+                            } else {
+                                Color::White
+                            }
+                        } else {
+                            if is_primary {
+                                Color::Cyan
+                            } else {
+                                Color::LightCyan
+                            } // Dimmed clean blue shade variants
+                        };
+
+                        let (dot_char, dot_color) = if is_daylight {
+                            ("○ ", Color::Yellow) // Solid yellow dot for day
+                        } else {
+                            ("  ", Color::Blue) // Hollow blue dot for night
+                        };
+
+                        let mut city_style = Style::default().fg(main_color);
+                        if is_primary {
+                            city_style = city_style.add_modifier(Modifier::BOLD);
+                        }
+                        let diff_style = Style::default().fg(Color::DarkGray);
+
+                        let time_cell_content = Line::from(vec![
+                            Span::styled(dot_char, Style::default().fg(dot_color)),
+                            Span::styled(
+                                z_now.format("%H:%M ").to_string(),
+                                Style::default().fg(main_color),
+                            ),
+                            Span::styled(
+                                z_now.format("%a, %b %d").to_string(),
+                                Style::default().fg(Color::DarkGray),
+                            ),
+                        ]);
 
                         data_rows.push(
                             Row::new(vec![
                                 Cell::from(format!("  {}", clean_city)).style(city_style),
                                 Cell::from(diff_str).style(diff_style),
-                                Cell::from(z_now.format("%H:%M").to_string())
-                                    .style(Style::default().fg(Color::LightGreen)),
-                                Cell::from(z_now.format("%a, %b %d").to_string())
-                                    .style(Style::default().fg(Color::DarkGray)),
+                                Cell::from(time_cell_content),
                             ])
                             .height(1),
                         );
