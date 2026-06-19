@@ -1,7 +1,7 @@
 mod font;
 use font::FONT;
 
-use chrono::{DateTime, Local, Offset, Timelike, Utc};
+use chrono::{Offset, Timelike, Utc};
 use chrono_tz::Tz;
 use clap::{Parser, ValueEnum};
 use crossterm::{
@@ -9,7 +9,6 @@ use crossterm::{
     event::{self, Event, KeyCode},
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use iana_time_zone;
 
 use log::{debug, info};
 use simplelog::{Config as LogConfig, LevelFilter, WriteLogger};
@@ -50,6 +49,15 @@ enum AppMode {
     World,
 }
 
+// command line argument for launching into a specific mode
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq)]
+enum ModeArg {
+    Clock,
+    Timer,
+    Stopwatch,
+    World,
+}
+
 #[derive(PartialEq, Debug)]
 enum TimerState {
     Running,
@@ -85,6 +93,9 @@ struct Cli {
 
     #[arg(short = 'z', long = "timezone")]
     timezone: Option<String>,
+
+    #[arg(short = 'm', long = "mode", value_enum)]
+    mode: Option<ModeArg>,
 }
 
 fn get_config_path() -> PathBuf {
@@ -180,8 +191,6 @@ fn main() -> io::Result<()> {
         iana_time_zone::get_timezone().ok()
     });
 
-    let is_custom_tz = tz_string_opt.is_some();
-
     let active_tz: Tz = tz_string_opt
         .as_deref()
         .and_then(|s| s.parse::<Tz>().ok())
@@ -189,6 +198,15 @@ fn main() -> io::Result<()> {
 
     let mut app_mode = AppMode::Clock;
     let mut timer_state = TimerState::Paused;
+
+    if let Some(explicit_mode) = cli.mode {
+        match explicit_mode {
+            ModeArg::Clock => app_mode = AppMode::Clock,
+            ModeArg::Timer => app_mode = AppMode::Countdown,
+            ModeArg::Stopwatch => app_mode = AppMode::Stopwatch,
+            ModeArg::World => app_mode = AppMode::World,
+        }
+    }
 
     let raw_timer_str = cli
         .timer
