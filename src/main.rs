@@ -312,18 +312,39 @@ fn main() -> io::Result<()> {
 
             let mut text_color = Color::Gray;
 
+            let header_line = match app_mode {
+                AppMode::Clock => Line::from(vec![
+                    Span::styled(
+                        format!("{}  ", header_label),
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(header_date, Style::default().fg(Color::DarkGray)),
+                ]),
+                AppMode::World => {
+                    // Keep the World Table dashboard top completely clear since it uses first-class column headers
+                    Line::from("")
+                }
+                _ => Line::from(vec![Span::styled(
+                    format!(
+                        "{} {}, {}",
+                        header_label,
+                        zoned_now.format("%H:%M"),
+                        zoned_now.format("%a, %b %d")
+                    ),
+                    Style::default().fg(Color::DarkGray),
+                )]),
+            };
+
+            // Draw the generated header line directly onto our stable top terminal row
+            frame.render_widget(
+                Paragraph::new(header_line).alignment(Alignment::Center),
+                main_chunks[0],
+            );
+
             let display_str = match app_mode {
                 AppMode::Clock => {
-                    let header_line = Line::from(vec![
-                        Span::styled(
-                            format!("{}  ", header_label),
-                            Style::default().fg(Color::Yellow),
-                        ),
-                        Span::styled(header_date, Style::default().fg(Color::DarkGray)),
-                    ]);
-                    let header_widget = Paragraph::new(header_line).alignment(Alignment::Center);
-                    frame.render_widget(header_widget, main_chunks[0]);
-
                     let is_in_blink_window = match chosen_blink {
                         Some(BlinkInterval::Hour) => minute == 0 && second == 0,
                         Some(BlinkInterval::Half) => (minute == 0 || minute == 30) && second == 0,
