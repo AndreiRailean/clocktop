@@ -426,7 +426,7 @@ fn main() -> io::Result<()> {
 
                     let header_row = Row::new(vec![
                         Cell::from("  LOCATION").style(Style::default().fg(Color::DarkGray)),
-                        Cell::from("DIFF").style(Style::default().fg(Color::DarkGray)),
+                        Cell::from("").style(Style::default().fg(Color::DarkGray)),
                         Cell::from("  TIME").style(Style::default().fg(Color::DarkGray)),
                     ])
                     .height(1);
