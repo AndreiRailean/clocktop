@@ -251,6 +251,7 @@ fn main() -> io::Result<()> {
 
     let mut show_laps_overlay = false;
     let mut overlay_scroll_offset = 0;
+    let mut timer_alert_triggered = false;
 
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
@@ -274,6 +275,12 @@ fn main() -> io::Result<()> {
                     remaining_secs -= 1;
                 } else {
                     timer_state = TimerState::Finished;
+                    if !timer_alert_triggered {
+                        if app_mode != AppMode::Countdown {
+                            app_mode = AppMode::Countdown;
+                        }
+                        timer_alert_triggered = true;
+                    }
                     info!("Timer reached zero! Alerting user.");
                 }
             }
@@ -867,6 +874,7 @@ fn main() -> io::Result<()> {
                 KeyCode::Char('r') => match app_mode {
                     AppMode::Countdown => {
                         remaining_secs = initial_duration_secs;
+                        timer_alert_triggered = false;
                         timer_state = if initial_duration_secs > 0 {
                             TimerState::Running
                         } else {
