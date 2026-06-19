@@ -83,7 +83,25 @@ struct Config {
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "clocktop", version, about = "Terminal clock widget")]
+#[command(
+    name = "clocktop",
+    version,
+    about = "Terminal clock widget",
+    help_template = "\
+{name} {version}
+{author-with-newline}{about-section}
+{usage-heading} {usage}
+
+{all-args}
+
+EXAMPLES:
+  clocktop -t 45m                    Launch directly into a 45-minute countdown timer
+  clocktop --timer 1h30s             Launch with a 1 hour and 30 seconds custom duration
+  clocktop --mode world              Launch straight into the multi-city world clock panel
+  clocktop -z America/New_York       Run the main clock displaying New York local time
+  clocktop -m stopwatch -z UTC       Run the stopwatch and set timezone to UTC
+"
+)]
 struct Cli {
     #[arg(short, long, value_enum)]
     blink: Option<BlinkInterval>,
@@ -306,7 +324,7 @@ fn main() -> io::Result<()> {
                 .last()
                 .unwrap_or(&zone_name)
                 .replace('_', " ");
-            let header_label = format!("[ {} ]", city_clean.to_uppercase());
+            let header_label = format!("{} ", city_clean.to_uppercase());
             let header_date = zoned_now.format("%a, %b %d, %Y").to_string();
             let formatted_time_digits = zoned_now.format("%H:%M:%S").to_string();
 
@@ -314,12 +332,7 @@ fn main() -> io::Result<()> {
 
             let header_line = match app_mode {
                 AppMode::Clock => Line::from(vec![
-                    Span::styled(
-                        format!("{}  ", header_label),
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD),
-                    ),
+                    Span::styled(header_label, Style::default().fg(Color::DarkGray)),
                     Span::styled(header_date, Style::default().fg(Color::DarkGray)),
                 ]),
                 AppMode::World => {
@@ -328,7 +341,7 @@ fn main() -> io::Result<()> {
                 }
                 _ => Line::from(vec![Span::styled(
                     format!(
-                        "{} {}, {}",
+                        "{}{}, {}",
                         header_label,
                         zoned_now.format("%H:%M"),
                         zoned_now.format("%a, %b %d")
@@ -399,15 +412,15 @@ fn main() -> io::Result<()> {
 
                 AppMode::World => {
                     let column_widths = [
-                        Constraint::Percentage(35),
-                        Constraint::Percentage(15),
-                        Constraint::Percentage(50),
+                        Constraint::Min(0),
+                        Constraint::Length(5),
+                        Constraint::Length(35),
                     ];
 
                     let header_row = Row::new(vec![
                         Cell::from("  LOCATION").style(Style::default().fg(Color::DarkGray)),
                         Cell::from("DIFF").style(Style::default().fg(Color::DarkGray)),
-                        Cell::from("TIME").style(Style::default().fg(Color::DarkGray)),
+                        Cell::from("  TIME").style(Style::default().fg(Color::DarkGray)),
                     ])
                     .height(1);
 
@@ -516,7 +529,27 @@ fn main() -> io::Result<()> {
                         .block(Block::default().borders(Borders::NONE))
                         .style(Style::default());
 
-                    frame.render_widget(world_table, main_chunks[1]);
+                    let current_width = frame.area().width;
+
+                    let table_area = if current_width > 80 {
+                        // If terminal window is wide, wrap it in a centered horizontal layout constraint block
+                        let horizontal_padding = (current_width.saturating_sub(80)) / 2;
+
+                        let layout_split = Layout::default()
+                            .direction(Direction::Horizontal)
+                            .constraints([
+                                Constraint::Length(horizontal_padding),
+                                Constraint::Length(80),
+                                Constraint::Length(horizontal_padding),
+                            ])
+                            .split(main_chunks[1]);
+
+                        layout_split[1]
+                    } else {
+                        main_chunks[1]
+                    };
+
+                    frame.render_widget(world_table, table_area);
 
                     "".to_string()
                 }
