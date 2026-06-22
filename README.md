@@ -111,6 +111,12 @@ daylight_start = 9
 daylight_end = 17
 ```
 
+## Example Usage
+<img width="920" alt="Screenshot 2026-06-23 at 9 43 58 am" src="https://github.com/user-attachments/assets/ccb71f4d-671b-4d64-80dc-aa6c9303bb1c" />
+
+Multiple instances of clocktop running in terminal panes showing time for different cities of the world. This is achieved by splitting the terminal and launching clocktop multiple times, each with a different time zone.
+
+
 ## Similar projects
 Some other rust-based tui clocks on github
 * [Clock TUI](https://github.com/race604/clock-tui)
