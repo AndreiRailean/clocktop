@@ -1,9 +1,16 @@
 mod font;
-use font::FONT;
+use crate::font::FONT;
+
+mod cli;
+mod config;
+mod types;
+mod utils;
+
+use crate::config::AppConfig;
+use crate::types::{AppMode, BlinkInterval, StopwatchState, TimerState};
 
 use chrono::{Offset, Timelike, Utc};
 use chrono_tz::Tz;
-use clap::{Parser, ValueEnum};
 use crossterm::{
     ExecutableCommand,
     event::{self, Event, KeyCode},
@@ -25,143 +32,10 @@ use ratatui::{
     },
 };
 
-use serde::Deserialize;
 use std::fmt::Write;
-use std::fs::{self, File};
+use std::fs::File;
 use std::io::{self, stdout};
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
-
-#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum BlinkInterval {
-    Hour,
-    Half,
-    Quarter,
-    Minute,
-}
-
-#[derive(PartialEq, Clone, Copy, Debug)]
-enum AppMode {
-    Clock,
-    Countdown,
-    Stopwatch,
-    World,
-}
-
-// command line argument for launching into a specific mode
-#[derive(Debug, Clone, Copy, ValueEnum, PartialEq)]
-enum ModeArg {
-    Clock,
-    Timer,
-    Stopwatch,
-    World,
-}
-
-#[derive(PartialEq, Debug)]
-enum TimerState {
-    Running,
-    Paused,
-    Finished,
-}
-
-#[derive(PartialEq, Debug)]
-enum StopwatchState {
-    Idle,
-    Running,
-    Paused,
-}
-
-#[derive(Deserialize, Default, Debug)]
-struct Config {
-    blink: Option<BlinkInterval>,
-    default_timer: Option<String>,
-    timezone: Option<String>,
-    world_clocks: Option<Vec<String>>,
-    daylight_start: Option<u32>,
-    daylight_end: Option<u32>,
-}
-
-#[derive(Parser, Debug)]
-#[command(
-    name = "clocktop",
-    version,
-    about = "Terminal clock widget",
-    help_template = "\
-{name} {version}
-{author-with-newline}{about-section}
-{usage-heading} {usage}
-
-{all-args}
-
-EXAMPLES:
-  clocktop -t 45m                    Launch directly into a 45-minute countdown timer
-  clocktop --timer 1h30s             Launch with a 1 hour and 30 seconds custom duration
-  clocktop --mode world              Launch straight into the multi-city world clock panel
-  clocktop -z America/New_York       Run the main clock displaying New York local time
-  clocktop -m stopwatch -z UTC       Run the stopwatch and set timezone to UTC
-"
-)]
-struct Cli {
-    #[arg(short, long, value_enum)]
-    blink: Option<BlinkInterval>,
-
-    #[arg(short, long, num_args(0..=1))]
-    timer: Option<String>,
-
-    #[arg(short = 'z', long = "timezone")]
-    timezone: Option<String>,
-
-    #[arg(short = 'm', long = "mode", value_enum)]
-    mode: Option<ModeArg>,
-}
-
-fn get_config_path() -> PathBuf {
-    let mut path = std::env::var("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            let home = std::env::var("HOME").unwrap_or_default();
-            PathBuf::from(home).join(".config")
-        });
-    path.push("clocktop");
-    path.push("config.toml");
-    path
-}
-
-fn load_config() -> Config {
-    let path = get_config_path();
-    debug!("Looking for config file at: {:?}", path);
-
-    if path.exists() {
-        if let Ok(content) = fs::read_to_string(path) {
-            if let Ok(config) = toml::from_str(&&content) {
-                return config;
-            }
-        }
-    }
-    info!("No configuration file found or failed to parse. Using defaults.");
-    Config::default()
-}
-
-fn parse_timer_string(s: &str) -> u64 {
-    duration_str::parse(s)
-        .unwrap_or(Duration::from_secs(0))
-        .as_secs()
-}
-
-fn format_stopwatch_duration(elapsed: Duration, force_hours: bool) -> String {
-    let total_secs = elapsed.as_secs();
-    let hours = total_secs / 3600;
-    let minutes = (total_secs % 3600) / 60;
-    let seconds = total_secs % 60;
-    let millis = elapsed.subsec_millis();
-
-    if force_hours || hours > 0 {
-        format!("{:02}:{:02}:{:02}.{:03}", hours, minutes, seconds, millis)
-    } else {
-        format!("{:02}:{:02}.{:03}", minutes, seconds, millis)
-    }
-}
 
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     let popup_layout = Layout::default()
@@ -199,12 +73,11 @@ fn main() -> io::Result<()> {
 
     info!("Starting clocktop application...");
 
-    let cli = Cli::parse();
-    let config = load_config();
+    let config = AppConfig::load();
 
-    let chosen_blink = cli.blink.or(config.blink);
+    let chosen_blink = config.blink;
 
-    let tz_string_opt = cli.timezone.or(config.timezone).or_else(|| {
+    let tz_string_opt = config.timezone.or_else(|| {
         // FALLBACK: Dynamically discover the host machine's IANA timezone at runtime
         iana_time_zone::get_timezone().ok()
     });
@@ -214,24 +87,11 @@ fn main() -> io::Result<()> {
         .and_then(|s| s.parse::<Tz>().ok())
         .unwrap_or(chrono_tz::UTC);
 
-    let mut app_mode = AppMode::Clock;
     let mut timer_state = TimerState::Paused;
 
-    if let Some(explicit_mode) = cli.mode {
-        match explicit_mode {
-            ModeArg::Clock => app_mode = AppMode::Clock,
-            ModeArg::Timer => app_mode = AppMode::Countdown,
-            ModeArg::Stopwatch => app_mode = AppMode::Stopwatch,
-            ModeArg::World => app_mode = AppMode::World,
-        }
-    }
+    let mut app_mode = config.app_mode;
 
-    let raw_timer_str = cli
-        .timer
-        .or(config.default_timer)
-        .unwrap_or_else(|| "25m".to_string());
-
-    let initial_duration_secs = parse_timer_string(&raw_timer_str);
+    let initial_duration_secs = config.timer.as_secs();
     let mut remaining_secs = initial_duration_secs;
 
     if std::env::args().any(|arg| arg == "-t" || arg == "--timer") && initial_duration_secs > 0 {
@@ -262,13 +122,7 @@ fn main() -> io::Result<()> {
     let mut last_tick = Instant::now();
     let mut should_redraw = true;
 
-    let world_clocks_list = config.world_clocks.unwrap_or_else(|| {
-        vec![
-            "America/New_York".to_string(),
-            "Europe/London".to_string(),
-            "Asia/Tokyo".to_string(),
-        ]
-    });
+    let world_clocks_list = config.world_clocks;
 
     loop {
         let tick_rate = match app_mode {
@@ -441,7 +295,7 @@ fn main() -> io::Result<()> {
                             StopwatchState::Paused => text_color = Color::Yellow,
                             StopwatchState::Running => text_color = Color::LightCyan,
                         }
-                        format_stopwatch_duration(current_stopwatch_display_time, false)
+                        utils::format_stopwatch_duration(current_stopwatch_display_time, false)
                     }
 
                     AppMode::World => {
@@ -500,8 +354,8 @@ fn main() -> io::Result<()> {
 
                             let current_hour = z_now.hour();
 
-                            let daylight_start_hour = config.daylight_start.unwrap_or(6);
-                            let daylight_end_hour = config.daylight_end.unwrap_or(18);
+                            let daylight_start_hour = config.daylight_start;
+                            let daylight_end_hour = config.daylight_end;
 
                             let is_daylight = if daylight_start_hour <= daylight_end_hour {
                                 current_hour >= daylight_start_hour
@@ -639,7 +493,7 @@ fn main() -> io::Result<()> {
                                 Style::default().fg(Color::DarkGray),
                             ),
                             Span::styled(
-                                format_stopwatch_duration(*lap, true),
+                                utils::format_stopwatch_duration(*lap, true),
                                 Style::default().fg(Color::Reset),
                             ),
                         ]));
@@ -768,7 +622,7 @@ fn main() -> io::Result<()> {
                                 Style::default().fg(Color::DarkGray),
                             ),
                             Span::styled(
-                                format_stopwatch_duration(*lap, true),
+                                utils::format_stopwatch_duration(*lap, true),
                                 Style::default().fg(Color::LightCyan),
                             ),
                         ]));
