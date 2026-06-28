@@ -49,7 +49,7 @@ impl Default for AppConfig {
     }
 }
 
-fn get_config_path() -> PathBuf {
+pub fn get_config_path() -> PathBuf {
     let mut path = std::env::var("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
@@ -62,18 +62,12 @@ fn get_config_path() -> PathBuf {
 }
 
 impl AppConfig {
-    pub fn load() -> Self {
-        let cli_args = Cli::load();
-
-        Self::build_base()
-            .merge(Serialized::defaults(cli_args))
-            .extract()
-            .expect("Invalid CLI configuration")
-    }
-
-    fn build_base() -> Figment {
+    pub fn try_load(cli_args: &Cli) -> Result<Self, figment::Error> {
+        let config_file_path = get_config_path();
         Figment::new()
             .merge(Serialized::defaults(AppConfig::default()))
-            .merge(Toml::file(get_config_path()))
+            .merge(Toml::file(&config_file_path))
+            .merge(Serialized::defaults(&cli_args))
+            .extract::<Self>()
     }
 }
