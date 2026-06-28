@@ -35,6 +35,7 @@ use ratatui::{
 use std::fmt::Write;
 use std::fs::File;
 use std::io::{self, stdout};
+use std::process;
 use std::time::{Duration, Instant};
 
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
@@ -73,7 +74,34 @@ fn main() -> io::Result<()> {
 
     info!("Starting clocktop application...");
 
-    let config = AppConfig::load();
+    let cli_args = cli::Cli::load();
+
+    if cli_args.command == Some(cli::Commands::Validate) {
+        let path = config::get_config_path();
+        println!(
+            "\x1b[1mValidating configuration file:\x1b[0m {}",
+            path.display()
+        );
+
+        match AppConfig::try_load(&cli_args) {
+            Ok(_) => {
+                println!("\x1b[1;32m✓\x1b[0m Configuration file syntax is valid.");
+                process::exit(0);
+            }
+            Err(err) => {
+                utils::print_config_error(err);
+                process::exit(1);
+            }
+        }
+    }
+
+    let config = match AppConfig::try_load(&cli_args) {
+        Ok(cfg) => cfg,
+        Err(err) => {
+            utils::print_config_error(err);
+            process::exit(1);
+        }
+    };
 
     let chosen_blink = config.blink;
 

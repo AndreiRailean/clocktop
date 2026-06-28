@@ -4,6 +4,12 @@ use clap::Parser;
 use serde::Serialize;
 use std::time::Duration;
 
+#[derive(clap::Subcommand, Serialize, Clone, PartialEq, Debug)]
+pub enum Commands {
+    // Validate the configuration file syntax and exit
+    Validate,
+}
+
 #[derive(Parser, Debug, Serialize)]
 #[command(
     name = "clocktop",
@@ -25,6 +31,9 @@ EXAMPLES:
 "
 )]
 pub struct Cli {
+    #[command(subcommand)]
+    pub command: Option<Commands>,
+
     #[arg(short, long, value_enum)]
     #[serde(skip_serializing_if = "Option::is_none")]
     blink: Option<BlinkInterval>,
