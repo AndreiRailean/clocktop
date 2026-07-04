@@ -1,4 +1,22 @@
+use chrono_tz::Tz;
+use std::str::FromStr;
 use std::time::Duration;
+
+pub fn resolve_timezone(input_tz: &str) -> Tz {
+    if !input_tz.trim().is_empty()
+        && let Ok(parsed_tz) = Tz::from_str(input_tz)
+    {
+        return parsed_tz;
+    }
+
+    if let Ok(local_tz_str) = iana_time_zone::get_timezone() {
+        if let Ok(local_tz) = Tz::from_str(&local_tz_str) {
+            return local_tz;
+        }
+    }
+
+    chrono_tz::UTC
+}
 
 pub fn format_stopwatch_duration(elapsed: Duration, force_hours: bool) -> String {
     let total_secs = elapsed.as_secs();

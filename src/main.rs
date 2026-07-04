@@ -1,11 +1,13 @@
 mod font;
 use crate::font::FONT;
 
+mod appstate;
 mod cli;
 mod config;
 mod types;
 mod utils;
 
+use crate::appstate::AppState;
 use crate::config::AppConfig;
 use crate::types::{AppMode, BlinkInterval, StopwatchState, TimerState};
 
@@ -103,39 +105,18 @@ fn main() -> io::Result<()> {
         }
     };
 
-    let chosen_blink = config.blink;
+    let mut app_state = AppState::new_from_config(&config);
 
-    let tz_string_opt = config.timezone.or_else(|| {
-        // FALLBACK: Dynamically discover the host machine's IANA timezone at runtime
-        iana_time_zone::get_timezone().ok()
-    });
+    let mut remaining_secs = app_state.timer().remaining_time().as_secs();
 
-    let active_tz: Tz = tz_string_opt
-        .as_deref()
-        .and_then(|s| s.parse::<Tz>().ok())
-        .unwrap_or(chrono_tz::UTC);
-
-    let mut timer_state = TimerState::Paused;
-
-    let mut app_mode = config.app_mode;
-
-    let initial_duration_secs = config.timer.as_secs();
-    let mut remaining_secs = initial_duration_secs;
-
-    if std::env::args().any(|arg| arg == "-t" || arg == "--timer") && initial_duration_secs > 0 {
-        app_mode = AppMode::Countdown;
-        timer_state = TimerState::Running;
-        debug!(
-            "Timer activated on launch. Value: {} seconds",
-            initial_duration_secs
-        );
+    if std::env::args().any(|arg| arg == "-t" || arg == "--timer")
+        && !app_state.timer().duration().is_zero()
+    {
+        app_state.set_active_mode(AppMode::Countdown);
+        app_state.update_timer(|timer| {
+            timer.reset();
+        });
     };
-
-    let mut stopwatch_state = StopwatchState::Idle;
-    let mut stopwatch_elapsed = Duration::ZERO;
-    let mut stopwatch_last_start: Option<Instant> = None;
-    let mut stopwatch_laps: Vec<Duration> = Vec::new();
-    let mut total_elapsed_at_last_lap = Duration::ZERO;
 
     let mut show_laps_overlay = false;
     let mut overlay_scroll_offset = 0;
@@ -153,57 +134,26 @@ fn main() -> io::Result<()> {
     let world_clocks_list = config.world_clocks;
 
     loop {
-        let tick_rate = match app_mode {
-            AppMode::Stopwatch => match stopwatch_state {
-                StopwatchState::Running => Duration::from_millis(30),
-                _ => Duration::from_millis(200),
-            },
-            _ => Duration::from_millis(200),
-        };
-
-        let event_poll_timeout = tick_rate
+        let tick_rate = app_state.tick_rate();
+        let timeout = tick_rate
             .checked_sub(last_tick.elapsed())
-            .unwrap_or(Duration::from_secs(0));
+            .unwrap_or_default();
+
+        let now = Instant::now();
 
         if last_tick.elapsed() >= tick_rate {
+            let delta = now.duration_since(last_tick);
+            last_tick = now;
+            app_state.tick(delta);
+
             should_redraw = true;
-
-            last_tick = Instant::now();
-            let current_second = chrono::Local::now().second();
-            let second_ticked_over = current_second != last_displayed_second;
-
-            if second_ticked_over {
-                last_displayed_second = current_second;
-            }
-
-            if timer_state == TimerState::Running && second_ticked_over {
-                if remaining_secs > 0 {
-                    remaining_secs -= 1;
-                } else {
-                    timer_state = TimerState::Finished;
-                    if !timer_alert_triggered {
-                        if app_mode != AppMode::Countdown {
-                            app_mode = AppMode::Countdown;
-                        }
-                        timer_alert_triggered = true;
-                    }
-                    info!("Timer reached zero! Alerting user.");
-                }
-            }
         }
 
-        let current_stopwatch_display_time =
-            if app_mode == AppMode::Stopwatch && stopwatch_state == StopwatchState::Running {
-                if let Some(start_time) = stopwatch_last_start {
-                    stopwatch_elapsed + last_tick.duration_since(start_time)
-                } else {
-                    stopwatch_elapsed
-                }
-            } else {
-                stopwatch_elapsed
-            };
-
         let mut mode_menu_buffer = String::new();
+
+        let stopwatch_state = app_state.stopwatch().state();
+        let stopwatch_laps = app_state.stopwatch().laps();
+
         if should_redraw {
             terminal.draw(|frame| {
                 let main_chunks = Layout::default()
@@ -226,12 +176,12 @@ fn main() -> io::Result<()> {
                     ])
                     .split(main_chunks[1]);
 
-                let zoned_now = Utc::now().with_timezone(&active_tz);
+                let zoned_now = Utc::now().with_timezone(&app_state.active_tz);
                 let minute = zoned_now.minute();
                 let second = zoned_now.second();
                 let milli = zoned_now.nanosecond() / 1_000_000;
 
-                let zone_name = format!("{:?}", active_tz);
+                let zone_name = format!("{:?}", &app_state.active_tz);
                 let city_clean = zone_name
                     .split("/")
                     .last()
@@ -243,7 +193,7 @@ fn main() -> io::Result<()> {
 
                 let mut text_color = Color::Gray;
 
-                let header_line = match app_mode {
+                let header_line = match app_state.active_mode() {
                     AppMode::Clock => Line::from(vec![
                         Span::styled(header_label, Style::default().fg(Color::DarkGray)),
                         Span::styled(header_date, Style::default().fg(Color::DarkGray)),
@@ -268,9 +218,9 @@ fn main() -> io::Result<()> {
                     main_chunks[0],
                 );
 
-                let display_str = match app_mode {
+                let display_str = match app_state.active_mode() {
                     AppMode::Clock => {
-                        let is_in_blink_window = match chosen_blink {
+                        let is_in_blink_window = match app_state.clock().blink() {
                             Some(BlinkInterval::Hour) => minute == 0 && second == 0,
                             Some(BlinkInterval::Half) => {
                                 (minute == 0 || minute == 30) && second == 0
@@ -298,18 +248,16 @@ fn main() -> io::Result<()> {
                         }
                     }
                     AppMode::Countdown => {
-                        let hours = remaining_secs / 3600;
-                        let minutes = (remaining_secs % 3600) / 60;
-                        let seconds = remaining_secs % 60;
+                        let (hours, minutes, seconds) = app_state.timer().remaining_time_parts();
 
-                        if timer_state == TimerState::Finished {
+                        if app_state.timer().state() == TimerState::Finished {
                             text_color = Color::Red;
                             if milli <= 400 {
                                 "00:00:00".to_string()
                             } else {
                                 "".to_string()
                             }
-                        } else if timer_state == TimerState::Paused {
+                        } else if app_state.timer().state() == TimerState::Paused {
                             text_color = Color::Yellow;
                             format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
                         } else {
@@ -323,7 +271,7 @@ fn main() -> io::Result<()> {
                             StopwatchState::Paused => text_color = Color::Yellow,
                             StopwatchState::Running => text_color = Color::LightCyan,
                         }
-                        utils::format_stopwatch_duration(current_stopwatch_display_time, false)
+                        utils::format_stopwatch_duration(app_state.stopwatch().elapsed(), false)
                     }
 
                     AppMode::World => {
@@ -343,7 +291,7 @@ fn main() -> io::Result<()> {
                         let mut data_rows = Vec::new();
                         let mut tracked_zones = world_clocks_list.clone();
 
-                        let baseline_str = format!("{:?}", active_tz).replace("::", "/");
+                        let baseline_str = format!("{:?}", &app_state.active_tz).replace("::", "/");
                         if !tracked_zones.contains(&baseline_str) {
                             tracked_zones.insert(0, baseline_str.clone());
                         }
@@ -355,7 +303,7 @@ fn main() -> io::Result<()> {
                             };
 
                             let z_now = Utc::now().with_timezone(&target_tz);
-                            let base_now = Utc::now().with_timezone(&active_tz);
+                            let base_now = Utc::now().with_timezone(&app_state.active_tz);
 
                             let zone_name = format!("{:?}", target_tz);
                             let clean_city = zone_name
@@ -378,7 +326,7 @@ fn main() -> io::Result<()> {
                                 format!("{}h", diff_hours)
                             };
 
-                            let is_primary = target_tz == active_tz;
+                            let is_primary = target_tz == app_state.active_tz;
 
                             let current_hour = z_now.hour();
 
@@ -511,7 +459,7 @@ fn main() -> io::Result<()> {
                     .style(Style::default().fg(text_color));
                 frame.render_widget(clock_widget, clock_chunks[1]);
 
-                if app_mode == AppMode::Stopwatch && !stopwatch_laps.is_empty() {
+                if app_state.active_mode() == AppMode::Stopwatch && !stopwatch_laps.is_empty() {
                     let mut lap_lines = Vec::new();
                     let start_idx = stopwatch_laps.len().saturating_sub(3);
                     for (i, lap) in stopwatch_laps.iter().enumerate().skip(start_idx) {
@@ -533,12 +481,11 @@ fn main() -> io::Result<()> {
                 // Mode Menu
                 mode_menu_buffer.clear();
                 let mut needs_sep = false;
-                match app_mode {
+                match app_state.active_mode() {
                     AppMode::Clock => {
-                        if timer_state == TimerState::Running {
-                            let hours = remaining_secs / 3600;
-                            let minutes = (remaining_secs % 3600) / 60;
-                            let seconds = remaining_secs % 60;
+                        if app_state.timer().is_running() {
+                            let (hours, minutes, seconds) =
+                                app_state.timer().remaining_time_parts();
                             let _ = write!(
                                 mode_menu_buffer,
                                 "Timer Running: {:02}:{:02}:{:02}",
@@ -547,14 +494,14 @@ fn main() -> io::Result<()> {
                             needs_sep = true;
                         }
 
-                        if stopwatch_state == StopwatchState::Running {
+                        if app_state.stopwatch().is_running() {
                             if needs_sep {
                                 mode_menu_buffer.push_str(" | ");
                             }
                             mode_menu_buffer.push_str("Stopwatch Running");
                         }
                     }
-                    AppMode::Countdown => match timer_state {
+                    AppMode::Countdown => match app_state.timer().state() {
                         TimerState::Running => {
                             mode_menu_buffer.push_str("Pause: <space> | Reset: r")
                         }
@@ -594,7 +541,7 @@ fn main() -> io::Result<()> {
                 let main_menu_line = Line::from(vec![
                     Span::styled(
                         "Clock",
-                        if app_mode == AppMode::Clock {
+                        if app_state.active_mode() == AppMode::Clock {
                             active_style
                         } else {
                             dim_style
@@ -604,7 +551,7 @@ fn main() -> io::Result<()> {
                     Span::styled(" | ", dim_style),
                     Span::styled(
                         "Timer",
-                        if app_mode == AppMode::Countdown {
+                        if app_state.active_mode() == AppMode::Countdown {
                             active_style
                         } else {
                             dim_style
@@ -614,7 +561,7 @@ fn main() -> io::Result<()> {
                     Span::styled(" | ", dim_style),
                     Span::styled(
                         "Stopwatch",
-                        if app_mode == AppMode::Stopwatch {
+                        if app_state.active_mode() == AppMode::Stopwatch {
                             active_style
                         } else {
                             dim_style
@@ -624,7 +571,7 @@ fn main() -> io::Result<()> {
                     Span::styled(" | ", dim_style),
                     Span::styled(
                         "World",
-                        if app_mode == AppMode::World {
+                        if app_state.active_mode() == AppMode::World {
                             active_style
                         } else {
                             dim_style
@@ -639,7 +586,7 @@ fn main() -> io::Result<()> {
                 frame.render_widget(main_menu_widget, main_chunks[4]);
 
                 // Stopwatch Lap Overlay
-                if app_mode == AppMode::Stopwatch && show_laps_overlay {
+                if app_state.active_mode() == AppMode::Stopwatch && show_laps_overlay {
                     let area = centered_rect(60, 70, frame.area());
                     frame.render_widget(Clear, area);
                     let mut overlay_lines = Vec::new();
@@ -705,6 +652,11 @@ fn main() -> io::Result<()> {
             should_redraw = false;
         }
 
+        let event_poll_timeout = app_state
+            .tick_rate()
+            .checked_sub(last_tick.elapsed())
+            .unwrap_or(Duration::from_secs(0));
+
         // Keyboard input
         if event::poll(event_poll_timeout)?
             && let Event::Key(key) = event::read()?
@@ -744,72 +696,47 @@ fn main() -> io::Result<()> {
             }
 
             match key.code {
-                KeyCode::Char('1') => app_mode = AppMode::Clock,
-                KeyCode::Char('2') => app_mode = AppMode::Countdown,
-                KeyCode::Char('3') => app_mode = AppMode::Stopwatch,
-                KeyCode::Char('4') => app_mode = AppMode::World,
+                KeyCode::Char('1') => app_state.set_active_mode(AppMode::Clock),
+                KeyCode::Char('2') => app_state.set_active_mode(AppMode::Countdown),
+                KeyCode::Char('3') => app_state.set_active_mode(AppMode::Stopwatch),
+                KeyCode::Char('4') => app_state.set_active_mode(AppMode::World),
                 KeyCode::Enter => {
-                    if app_mode == AppMode::Stopwatch
-                        && (stopwatch_state == StopwatchState::Paused
-                            || stopwatch_state == StopwatchState::Idle)
+                    if app_state.active_mode() == AppMode::Stopwatch
+                        && !app_state.stopwatch().is_running()
                     {
                         show_laps_overlay = !show_laps_overlay;
                     }
                 }
-                KeyCode::Char(' ') => match app_mode {
+                KeyCode::Char(' ') => match app_state.active_mode() {
                     AppMode::Countdown => {
-                        timer_state = match timer_state {
-                            TimerState::Running => TimerState::Paused,
-                            TimerState::Paused => TimerState::Running,
-                            TimerState::Finished => TimerState::Finished,
-                        };
+                        app_state.update_timer(|timer| {
+                            timer.toggle();
+                        });
                     }
-                    AppMode::Stopwatch => match stopwatch_state {
-                        StopwatchState::Idle => {
-                            stopwatch_state = StopwatchState::Running;
-                            stopwatch_last_start = Some(Instant::now());
-                        }
-                        StopwatchState::Running => {
-                            stopwatch_state = StopwatchState::Paused;
-                            if let Some(start_time) = stopwatch_last_start {
-                                stopwatch_elapsed += last_tick.duration_since(start_time);
-                            }
-                            stopwatch_last_start = None;
-                        }
-                        StopwatchState::Paused => {
-                            show_laps_overlay = false;
-                            stopwatch_state = StopwatchState::Running;
-                            stopwatch_last_start = Some(Instant::now());
-                        }
-                    },
+                    AppMode::Stopwatch => {
+                        app_state.update_stopwatch(|sw| {
+                            sw.toggle();
+                        });
+                    }
                     _ => {}
                 },
                 KeyCode::Char('l') => {
-                    if app_mode == AppMode::Stopwatch && stopwatch_state == StopwatchState::Running
-                    {
-                        let current_lap_duration =
-                            current_stopwatch_display_time - total_elapsed_at_last_lap;
-                        stopwatch_laps.push(current_lap_duration);
-                        total_elapsed_at_last_lap = current_stopwatch_display_time;
+                    if app_state.active_mode() == AppMode::Stopwatch {
+                        app_state.update_stopwatch(|sw| {
+                            sw.record_lap();
+                        });
                     }
                 }
-                KeyCode::Char('r') => match app_mode {
+                KeyCode::Char('r') => match app_state.active_mode() {
                     AppMode::Countdown => {
-                        remaining_secs = initial_duration_secs;
-                        timer_alert_triggered = false;
-                        timer_state = if initial_duration_secs > 0 {
-                            TimerState::Running
-                        } else {
-                            TimerState::Paused
-                        }
+                        app_state.update_timer(|timer| {
+                            timer.reset();
+                        });
                     }
                     AppMode::Stopwatch => {
-                        if stopwatch_state == StopwatchState::Paused {
-                            stopwatch_state = StopwatchState::Idle;
-                            stopwatch_elapsed = Duration::ZERO;
-                            stopwatch_last_start = None;
-                            stopwatch_laps.clear();
-                        }
+                        app_state.update_stopwatch(|sw| {
+                            sw.reset();
+                        });
                     }
                     _ => {}
                 },
