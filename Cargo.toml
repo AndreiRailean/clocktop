@@ -2,6 +2,7 @@
 name = "clocktop"
 version = "0.1.0"
 edition = "2024"
+repository = "https://github.com/AndreiRailean/clocktop"
 
 [dependencies]
 chrono = "0.4.45"
@@ -25,3 +26,8 @@ opt-level = 'z'
 lto = true
 codgen-units = 1
 panic = 'abort'
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
