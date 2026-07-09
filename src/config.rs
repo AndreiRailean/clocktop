@@ -24,7 +24,6 @@ pub struct AppConfig {
     pub world_clocks: Vec<String>,
 
     pub daylight_start: u32,
-
     pub daylight_end: u32,
 
     #[serde(rename = "mode")]
