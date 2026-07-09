@@ -1,3 +1,6 @@
+use chrono::DateTime;
+use chrono::Utc;
+use chrono_tz::Tz;
 use chrono_tz::UTC;
 
 use crate::config::AppConfig;
@@ -28,16 +31,9 @@ pub struct TimerModeState {
     state: TimerState,
     duration: Duration,
     remaining: Duration,
-
-    // TODO: consider moving to presentation logic
-    pub alert_triggered: bool,
 }
 
 impl TimerModeState {
-    pub fn set_state(&mut self, state: TimerState) {
-        self.state = state;
-    }
-
     pub fn state(&self) -> TimerState {
         self.state
     }
@@ -57,7 +53,6 @@ impl TimerModeState {
     }
 
     pub fn reset(&mut self) {
-        self.alert_triggered = false;
         if !self.duration.is_zero() {
             self.state = TimerState::Running;
             self.remaining = self.duration;
@@ -75,10 +70,6 @@ impl TimerModeState {
 
     pub fn duration(&self) -> &Duration {
         &self.duration
-    }
-
-    pub fn remaining_time(&self) -> &Duration {
-        &self.remaining
     }
 
     pub fn remaining_time_parts(&self) -> (u64, u64, u64) {
@@ -103,7 +94,7 @@ impl TimerModeState {
             }
             _ => {
                 self.remaining = Duration::ZERO;
-                self.state = TimerState::Paused;
+                self.state = TimerState::Finished;
 
                 TimerTickResult::TimerExpired
             }
@@ -117,13 +108,13 @@ pub struct StopwatchModeState {
 
     elapsed: Duration,
     laps: Vec<Duration>,
+
+    // UI vars
+    overlay_open: bool,
+    scroll_index: usize,
 }
 
 impl StopwatchModeState {
-    pub fn set_state(&mut self, state: StopwatchState) {
-        self.state = state;
-    }
-
     pub fn toggle(&mut self) {
         self.state = match self.state {
             StopwatchState::Running => StopwatchState::Paused,
@@ -180,25 +171,40 @@ impl StopwatchModeState {
         *self = Self::default();
     }
 
-    pub fn pause(&mut self) {
-        if !self.is_running() {
+    pub fn toggle_overlay(&mut self) {
+        if self.is_running() {
             return;
         }
 
-        self.state = StopwatchState::Paused;
+        self.overlay_open = !self.overlay_open;
+        // Reset scroll position when opening/closing
+        if !self.overlay_open {
+            self.scroll_index = 0;
+        }
     }
 
-    pub fn resume(&mut self) {
-        if self.state != StopwatchState::Paused {
-            return;
+    pub fn scroll_up(&mut self) {
+        if self.overlay_open && self.scroll_index > 0 {
+            self.scroll_index -= 1;
         }
+    }
 
-        self.state = StopwatchState::Running;
+    pub fn scroll_down(&mut self) {
+        if self.overlay_open && !self.laps.is_empty() && self.scroll_index < self.laps.len() - 1 {
+            self.scroll_index += 1;
+        }
+    }
+
+    pub fn is_overlay_open(&self) -> bool {
+        self.overlay_open
+    }
+    pub fn scroll_index(&self) -> usize {
+        self.scroll_index
     }
 }
 
+#[derive(Debug)]
 pub struct AppState {
-    is_dirty: bool,
     active_mode: AppMode,
 
     pub clock: ClockModeState,
@@ -206,16 +212,27 @@ pub struct AppState {
     stopwatch: StopwatchModeState,
     pub active_tz: chrono_tz::Tz,
 
-    last_tick_time: Instant,
+    world_clocks: Vec<String>,
+    pub daylight_start: u32,
+    pub daylight_end: u32,
+
+    last_tick: Instant,
+    base_now_clock: DateTime<Utc>,
 }
 
 impl Default for AppState {
     fn default() -> Self {
+        let default_config = AppConfig::default();
+
         Self {
-            active_mode: AppMode::Clock,
-            is_dirty: true,
+            active_mode: default_config.app_mode,
             active_tz: UTC,
-            last_tick_time: Instant::now(),
+            last_tick: Instant::now(),
+            base_now_clock: Utc::now(),
+
+            world_clocks: default_config.world_clocks,
+            daylight_start: default_config.daylight_start,
+            daylight_end: default_config.daylight_end,
 
             stopwatch: StopwatchModeState::default(),
             timer: TimerModeState::default(),
@@ -226,46 +243,45 @@ impl Default for AppState {
 
 impl AppState {
     pub fn new_from_config(config: &AppConfig) -> Self {
-        let mut state = AppState::default();
-        state.active_mode = config.app_mode;
-        state.active_tz = utils::resolve_timezone(config.timezone.as_deref().unwrap_or(""));
+        let mut state = AppState {
+            active_mode: config.app_mode,
+            active_tz: utils::resolve_timezone(config.timezone.as_deref().unwrap_or("")),
+
+            // WORLD
+            world_clocks: config.world_clocks.clone(),
+            ..Default::default()
+        };
+
         state.clock.blink = config.blink;
 
-        // TIMER
         state.timer.set_duration(config.timer);
-
-        // WORLD1
 
         state
     }
 
-    pub fn tick(&mut self, delta: Duration) {
-        match self.active_mode {
-            AppMode::Countdown => {
-                if let TimerTickResult::TimerExpired = self.timer.tick(delta) {
-                    self.active_mode = AppMode::Countdown;
-                    self.mark_dirty();
-                }
-            }
-            AppMode::Stopwatch => {
-                if self.stopwatch.is_running() {
-                    self.mark_dirty();
-                }
-                self.stopwatch.tick(delta)
-            }
-            AppMode::Clock => {
-                //
-            }
-            AppMode::World => {
-                //
-            }
+    pub fn tick(&mut self, now_instant: Instant, now_clock: DateTime<Utc>) {
+        self.base_now_clock = now_clock;
+        let delta = now_instant.duration_since(self.last_tick);
+
+        if self.timer.is_running()
+            && let TimerTickResult::TimerExpired = self.timer.tick(delta)
+        {
+            self.active_mode = AppMode::Countdown;
         }
+
+        if self.active_mode == AppMode::Stopwatch && self.stopwatch.is_running() {
+            self.stopwatch.tick(delta);
+        }
+        self.last_tick = now_instant;
+    }
+
+    pub fn zoned_now(&self) -> DateTime<Tz> {
+        self.base_now_clock.with_timezone(&self.active_tz)
     }
 
     pub fn set_active_mode(&mut self, mode: AppMode) {
         if self.active_mode != mode {
             self.active_mode = mode;
-            self.mark_dirty();
         }
     }
 
@@ -273,22 +289,13 @@ impl AppState {
         self.active_mode
     }
 
-    fn mark_dirty(&mut self) {
-        self.is_dirty = true;
-    }
-
-    pub fn take_dirty_flag(&mut self) -> bool {
-        let dirty = self.is_dirty;
-        self.is_dirty = false;
-        dirty
+    pub fn world_clocks(&self) -> &Vec<String> {
+        &self.world_clocks
     }
 
     pub fn tick_rate(&self) -> Duration {
         match self.active_mode {
-            AppMode::Stopwatch => match self.stopwatch.state {
-                StopwatchState::Running => Duration::from_millis(30),
-                _ => Duration::from_millis(200),
-            },
+            AppMode::Stopwatch if self.stopwatch().is_running() => Duration::from_millis(30),
             _ => Duration::from_millis(200),
         }
     }
@@ -312,7 +319,6 @@ impl AppState {
         F: FnOnce(&mut StopwatchModeState),
     {
         update_fn(&mut self.stopwatch);
-        self.mark_dirty();
     }
 
     //
@@ -327,6 +333,5 @@ impl AppState {
         F: FnOnce(&mut TimerModeState),
     {
         update_fn(&mut self.timer);
-        self.mark_dirty();
     }
 }
