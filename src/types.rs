@@ -21,16 +21,6 @@ pub enum AppMode {
     World,
 }
 
-// command line argument for launching into a specific mode
-#[derive(Debug, Default, Clone, Copy, ValueEnum, PartialEq)]
-pub enum ModeArg {
-    #[default]
-    Clock,
-    Timer,
-    Stopwatch,
-    World,
-}
-
 #[derive(Debug, Default, Clone, Copy, ValueEnum, PartialEq)]
 pub enum TimerState {
     Running,
