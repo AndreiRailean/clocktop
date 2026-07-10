@@ -1,8 +1,11 @@
 use crate::types::{AppMode, BlinkInterval};
+use shadow_rs::shadow;
 
 use clap::Parser;
 use serde::Serialize;
 use std::time::Duration;
+
+shadow!(build);
 
 #[derive(clap::Subcommand, Serialize, Clone, PartialEq, Debug)]
 pub enum Commands {
@@ -14,6 +17,7 @@ pub enum Commands {
 #[command(
     name = "clocktop",
     version,
+    long_version = build::CLAP_LONG_VERSION,
     about = "Terminal clock widget",
     help_template = "\
 {name} {version}

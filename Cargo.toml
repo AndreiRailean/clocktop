@@ -3,6 +3,7 @@ name = "clocktop"
 version = "0.1.0"
 edition = "2024"
 repository = "https://github.com/AndreiRailean/clocktop"
+build = "build.rs"
 
 [dependencies]
 chrono = "0.4.45"
@@ -17,9 +18,13 @@ iana-time-zone = "0.1.65"
 log = "0.4.32"
 ratatui = "0.30.1"
 serde = { version = "1.0.228", features = ["derive"] }
+shadow-rs = "2.0.0"
 simplelog = "0.12.2"
 time = "=0.3.49"
 toml = "1.1.2"
+
+[build-dependencies]
+shadow-rs = "2.0.0"
 
 [profile.release]
 opt-level = 'z'
