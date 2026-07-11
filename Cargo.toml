@@ -36,3 +36,6 @@ panic = 'abort'
 [profile.dist]
 inherits = "release"
 lto = "thin"
+
+[workspace.metadata.dist]
+allow-all-branches = false
