@@ -4,6 +4,7 @@ use chrono_tz::Tz;
 use chrono_tz::UTC;
 
 use crate::config::AppConfig;
+use crate::renderer;
 use crate::utils;
 
 use crate::types::{AppMode, BlinkInterval, StopwatchState, TimerState};
@@ -218,6 +219,9 @@ pub struct AppState {
 
     last_tick: Instant,
     base_now_clock: DateTime<Utc>,
+
+    pub show_help: bool,
+    pub help_scroll_index: usize,
 }
 
 impl Default for AppState {
@@ -237,6 +241,9 @@ impl Default for AppState {
             stopwatch: StopwatchModeState::default(),
             timer: TimerModeState::default(),
             clock: ClockModeState::default(),
+
+            show_help: false,
+            help_scroll_index: 0,
         }
     }
 }
@@ -273,6 +280,30 @@ impl AppState {
             self.stopwatch.tick(delta);
         }
         self.last_tick = now_instant;
+    }
+
+    pub fn toggle_help(&mut self) {
+        self.show_help = !self.show_help;
+        if self.show_help {
+            self.help_scroll_index = match self.active_mode {
+                AppMode::Clock | AppMode::World => 0,
+                AppMode::Countdown => 9,
+                AppMode::Stopwatch => 12,
+            }
+        }
+    }
+
+    pub fn help_scroll_up(&mut self) {
+        if self.help_scroll_index > 0 {
+            self.help_scroll_index -= 1;
+        }
+    }
+
+    pub fn help_scroll_down(&mut self) {
+        let max_idx = renderer::get_help_manifest().len() - 1;
+        if self.help_scroll_index < max_idx {
+            self.help_scroll_index += 1;
+        }
     }
 
     pub fn zoned_now(&self) -> DateTime<Tz> {

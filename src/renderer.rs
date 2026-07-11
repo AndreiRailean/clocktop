@@ -470,7 +470,7 @@ impl Renderer {
             ),
             Span::styled(" 4", dim_style),
             Span::styled(" | ", dim_style),
-            Span::styled("Quit q", dim_style),
+            Span::styled("?", dim_style),
         ]);
 
         let main_menu_widget = Paragraph::new(main_menu_line).alignment(Alignment::Center);
@@ -545,5 +545,187 @@ impl Renderer {
                 frame.render_stateful_widget(scrollbar, overlay_area, &mut scroll_state);
             }
         }
+        if app_state.show_help {
+            self.draw_help_overlay(frame, app_state);
+        }
     }
+
+    pub fn draw_help_overlay(&self, frame: &mut Frame, state: &appstate::AppState) {
+        if !state.show_help {
+            return;
+        }
+
+        // 1. Center a floating popup layout on screen over any existing graphics
+        let overlay_area = centered_rect(80, 80, frame.area());
+
+        // 2. Fetch data rows and convert them to rich styled elements
+        let manifest = get_help_manifest();
+        let items: Vec<ListItem> = manifest
+            .iter()
+            .map(|row| {
+                if row.is_header {
+                    let line = Line::from(vec![Span::styled(
+                        row.description,
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    )]);
+                    ListItem::new(line)
+                } else {
+                    let line = Line::from(vec![
+                        Span::styled(
+                            format!(" {} ", row.shortcut),
+                            Style::default()
+                                .bg(Color::DarkGray)
+                                .fg(Color::White)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(" ── ", Style::default().fg(Color::DarkGray)),
+                        Span::styled(row.description, Style::default().fg(Color::Gray)),
+                    ]);
+                    ListItem::new(line)
+                }
+            })
+            .collect();
+
+        // 3. Inject our selection index to jump focus to the right section
+        let mut list_state = ListState::default().with_selected(Some(state.help_scroll_index));
+
+        let help_list = List::new(items)
+            .block(
+                Block::default()
+                    .title(" Shortcut menu (Press ? to Close) ")
+                    .borders(Borders::ALL),
+            )
+            .highlight_style(Style::default().bg(Color::Rgb(40, 40, 40))) // Subtle row backdrop anchor
+            .highlight_symbol("→ ");
+
+        // 4. Paint to target overlay layout
+        frame.render_widget(Clear, overlay_area); // This wipes out background grid cells cleanly
+        frame.render_stateful_widget(help_list, overlay_area, &mut list_state);
+
+        // 5. Build and draw tracking scrollbar indicators
+        let content_length = manifest.len();
+        let viewport_height = overlay_area.height.saturating_sub(2) as usize;
+        if content_length > viewport_height {
+            let mut scroll_state =
+                ScrollbarState::new(content_length).position(state.help_scroll_index);
+            let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                .track_symbol(Some("│"))
+                .thumb_symbol("█")
+                .style(Style::default().fg(Color::Yellow));
+            frame.render_stateful_widget(scrollbar, overlay_area, &mut scroll_state);
+        }
+    }
+}
+
+pub struct HelpRow {
+    is_header: bool,
+    shortcut: &'static str,
+    description: &'static str,
+    category: &'static str,
+}
+
+pub fn get_help_manifest() -> Vec<HelpRow> {
+    vec![
+        // --- GLOBAL / CLOCK MODE ---
+        HelpRow {
+            is_header: true,
+            shortcut: "",
+            description: "--- Global & Clock Controls ---",
+            category: "Global",
+        },
+        HelpRow {
+            is_header: false,
+            shortcut: " Esc ",
+            description: "Cycle view mode panels forward",
+            category: "Global",
+        },
+        HelpRow {
+            is_header: false,
+            shortcut: "  ?  ",
+            description: "Toggle this interactive help panel",
+            category: "Global",
+        },
+        HelpRow {
+            is_header: false,
+            shortcut: "  q  ",
+            description: "Quit",
+            category: "Global",
+        },
+        HelpRow {
+            is_header: false,
+            shortcut: "  1  ",
+            description: "Clock mode",
+            category: "Global",
+        },
+        HelpRow {
+            is_header: false,
+            shortcut: "  2  ",
+            description: "Timer mode",
+            category: "Global",
+        },
+        HelpRow {
+            is_header: false,
+            shortcut: "  3  ",
+            description: "Stopwatch mode",
+            category: "Global",
+        },
+        HelpRow {
+            is_header: false,
+            shortcut: "  4  ",
+            description: "World Clock mode",
+            category: "Global",
+        },
+        // --- TIMER MODE ---
+        HelpRow {
+            is_header: true,
+            shortcut: "",
+            description: "--- Timer Controls ---",
+            category: "Timer",
+        },
+        HelpRow {
+            is_header: false,
+            shortcut: "Space",
+            description: "Toggle timer (Start/Pause)",
+            category: "Timer",
+        },
+        HelpRow {
+            is_header: false,
+            shortcut: "  r  ",
+            description: "Reset and restart timer",
+            category: "Timer",
+        },
+        // --- STOPWATCH MODE ---
+        HelpRow {
+            is_header: true,
+            shortcut: "",
+            description: "--- Stopwatch Controls ---",
+            category: "Stopwatch",
+        },
+        HelpRow {
+            is_header: false,
+            shortcut: "Space",
+            description: "Toggle stopwatch ticker (Start/Pause)",
+            category: "Stopwatch",
+        },
+        HelpRow {
+            is_header: false,
+            shortcut: "  l  ",
+            description: "Record split lap fragment duration",
+            category: "Stopwatch",
+        },
+        HelpRow {
+            is_header: false,
+            shortcut: "  r  ",
+            description: "Reset stopwatch accumulator values to zero",
+            category: "Stopwatch",
+        },
+        HelpRow {
+            is_header: false,
+            shortcut: "Enter",
+            description: "Toggle historic lap overlay viewer",
+            category: "Stopwatch",
+        },
+    ]
 }

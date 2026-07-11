@@ -88,7 +88,27 @@ fn main() -> io::Result<()> {
             {
                 break;
             }
+            if key.code == KeyCode::Char('?') {
+                app_state.toggle_help();
+                continue;
+            }
 
+            if app_state.show_help {
+                // GATED MODAL SHORTCUTS: Scroll through help items
+                match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        app_state.help_scroll_up();
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        app_state.help_scroll_down();
+                    }
+                    KeyCode::Esc | KeyCode::Enter | KeyCode::Char(' ') => {
+                        app_state.toggle_help();
+                    }
+                    _ => {}
+                }
+                continue;
+            }
             // Mode-specific keys
             match app_state.active_mode() {
                 AppMode::Countdown => match key.code {
