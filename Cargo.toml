@@ -37,5 +37,3 @@ panic = 'abort'
 inherits = "release"
 lto = "thin"
 
-[workspace.metadata.dist]
-allow-all-branches = false
