@@ -61,6 +61,7 @@ pub fn get_config_path() -> PathBuf {
 }
 
 impl AppConfig {
+    #[allow(clippy::result_large_err)]
     pub fn try_load(cli_args: &Cli) -> Result<Self, figment::Error> {
         let config_file_path = get_config_path();
         Figment::new()

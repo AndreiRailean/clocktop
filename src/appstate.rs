@@ -366,3 +366,72 @@ impl AppState {
         update_fn(&mut self.timer);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{StopwatchState, TimerState};
+
+    #[test]
+    fn test_timer_mode_state() {
+        let mut timer = TimerModeState::default();
+        assert_eq!(timer.state(), TimerState::Paused);
+
+        timer.set_duration(Duration::from_secs(10));
+        assert_eq!(timer.state(), TimerState::Paused);
+        assert_eq!(timer.remaining, Duration::from_secs(10));
+
+        // Toggle to run
+        timer.toggle();
+        assert_eq!(timer.state(), TimerState::Running);
+
+        // Tick 3 seconds
+        let res = timer.tick(Duration::from_secs(3));
+        assert_eq!(res, TimerTickResult::NoEvent);
+        assert_eq!(timer.remaining, Duration::from_secs(7));
+
+        // Tick remaining 7 seconds
+        let res = timer.tick(Duration::from_secs(7));
+        assert_eq!(res, TimerTickResult::TimerExpired);
+        assert_eq!(timer.remaining, Duration::ZERO);
+        assert_eq!(timer.state(), TimerState::Finished);
+
+        // Toggle when finished
+        timer.toggle();
+        assert_eq!(timer.state(), TimerState::Finished);
+
+        // Reset
+        timer.reset();
+        assert_eq!(timer.state(), TimerState::Running);
+        assert_eq!(timer.remaining, Duration::from_secs(10));
+    }
+
+    #[test]
+    fn test_stopwatch_mode_state() {
+        let mut sw = StopwatchModeState::default();
+        assert_eq!(*sw.state(), StopwatchState::Idle);
+
+        sw.tick(Duration::from_secs(5));
+        assert_eq!(sw.elapsed(), Duration::ZERO); // Shouldn't tick when not running
+
+        sw.toggle();
+        assert_eq!(*sw.state(), StopwatchState::Running);
+
+        sw.tick(Duration::from_secs(5));
+        assert_eq!(sw.elapsed(), Duration::from_secs(5));
+
+        sw.record_lap();
+        assert_eq!(sw.laps(), &[Duration::from_secs(5)]);
+
+        sw.tick(Duration::from_secs(3));
+        assert_eq!(sw.current_lap_time(), Duration::from_secs(3));
+        assert_eq!(sw.elapsed(), Duration::from_secs(8));
+
+        sw.toggle();
+        assert_eq!(*sw.state(), StopwatchState::Paused);
+
+        sw.reset();
+        assert_eq!(*sw.state(), StopwatchState::Idle);
+        assert_eq!(sw.elapsed(), Duration::ZERO);
+    }
+}

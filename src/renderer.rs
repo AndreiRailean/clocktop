@@ -619,6 +619,7 @@ impl Renderer {
     }
 }
 
+#[allow(dead_code)]
 pub struct HelpRow {
     is_header: bool,
     shortcut: &'static str,

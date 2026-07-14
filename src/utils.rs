@@ -9,10 +9,10 @@ pub fn resolve_timezone(input_tz: &str) -> Tz {
         return parsed_tz;
     }
 
-    if let Ok(local_tz_str) = iana_time_zone::get_timezone() {
-        if let Ok(local_tz) = Tz::from_str(&local_tz_str) {
-            return local_tz;
-        }
+    if let Ok(local_tz_str) = iana_time_zone::get_timezone()
+        && let Ok(local_tz) = Tz::from_str(&local_tz_str)
+    {
+        return local_tz;
     }
 
     chrono_tz::UTC
@@ -35,10 +35,10 @@ pub fn format_stopwatch_duration(elapsed: Duration, force_hours: bool) -> String
 pub fn print_config_error(err: figment::Error) {
     eprintln!("\n\x1b[1;31mValidation Error:\x1b[0m Failed to process properties.");
     for e in err {
-        if let Some(metadata) = &e.metadata {
-            if let Some(figment::Source::File(path)) = &metadata.source {
-                eprintln!("  \x1b[1mFile:\x1b[0m {}", path.display());
-            }
+        if let Some(metadata) = &e.metadata
+            && let Some(figment::Source::File(path)) = &metadata.source
+        {
+            eprintln!("  \x1b[1mFile:\x1b[0m {}", path.display());
         }
         if !e.path.is_empty() {
             eprintln!("  \x1b[1mSetting:\x1b[0m {}", e.path.join("."));
@@ -48,5 +48,44 @@ pub fn print_config_error(err: figment::Error) {
             .replace("invalid type:", "Invalid type:")
             .replace("invalid value:", "Invalid value:");
         eprintln!("  \x1b[1mProblem:\x1b[0m {}\n", friendly_msg);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn test_format_stopwatch_duration() {
+        assert_eq!(
+            format_stopwatch_duration(Duration::from_millis(123), false),
+            "00:00.123"
+        );
+        assert_eq!(
+            format_stopwatch_duration(Duration::from_secs(65) + Duration::from_millis(500), false),
+            "01:05.500"
+        );
+        assert_eq!(
+            format_stopwatch_duration(Duration::from_secs(3600) + Duration::from_millis(1), false),
+            "01:00:00.001"
+        );
+        assert_eq!(
+            format_stopwatch_duration(Duration::from_secs(65), true),
+            "00:01:05.000"
+        );
+    }
+
+    #[test]
+    fn test_resolve_timezone() {
+        assert_eq!(resolve_timezone("UTC"), chrono_tz::UTC);
+        assert_eq!(
+            resolve_timezone("America/New_York"),
+            chrono_tz::America::New_York
+        );
+        // Fallback checks (system local or UTC if none found)
+        let resolved = resolve_timezone("Invalid/Timezone");
+        // Must resolve to some timezone, typically UTC or system local Tz
+        assert!(!resolved.name().is_empty());
     }
 }
