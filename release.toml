@@ -6,5 +6,5 @@ tag-prefix = "v"
 tag-name = "v{{version}}"
 
 # Git-cliff changelog generation for each release
-pre-release-hook = ["git-cliff", "-l", "--tag", "v{{version}}", "--prepend", "CHANGELOG.md"]
+pre-release-hook = ["git-cliff", "--tag", "v{{version}}"]
 
