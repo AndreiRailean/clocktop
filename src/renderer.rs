@@ -109,7 +109,7 @@ impl Renderer {
             main_chunks[0],
         );
 
-        let display_str = match app_state.active_mode() {
+        let display_str: Option<String> = match app_state.active_mode() {
             AppMode::Clock => {
                 let is_in_blink_window = match app_state.clock().blink() {
                     Some(BlinkInterval::Hour) => minute == 0 && second == 0,
@@ -125,12 +125,12 @@ impl Renderer {
                 let separator = if should_hide_separator { ' ' } else { ':' };
 
                 if should_hide {
-                    "".to_string()
+                    Some("".to_string())
                 } else {
-                    format!(
+                    Some(format!(
                         "{:02}{}{:02}{}{:02}",
                         hour, separator, minute, separator, second
-                    )
+                    ))
                 }
             }
 
@@ -140,16 +140,16 @@ impl Renderer {
                 if app_state.timer().state() == TimerState::Finished {
                     text_color = Color::Red;
                     if milli <= 400 {
-                        "00:00:00".to_string()
+                        Some("00:00:00".to_string())
                     } else {
-                        "".to_string()
+                        Some("".to_string())
                     }
                 } else if app_state.timer().state() == TimerState::Paused {
                     text_color = Color::Yellow;
-                    format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+                    Some(format!("{:02}:{:02}:{:02}", hours, minutes, seconds))
                 } else {
                     text_color = Color::LightGreen;
-                    format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+                    Some(format!("{:02}:{:02}:{:02}", hours, minutes, seconds))
                 }
             }
 
@@ -159,175 +159,43 @@ impl Renderer {
                     StopwatchState::Paused => text_color = Color::Yellow,
                     StopwatchState::Running => text_color = Color::LightCyan,
                 }
-                utils::format_stopwatch_duration(app_state.stopwatch().elapsed(), false)
+                Some(utils::format_stopwatch_duration(app_state.stopwatch().elapsed(), false))
             }
 
             AppMode::World => {
-                let column_widths = [
-                    Constraint::Min(0),
-                    Constraint::Length(5),
-                    Constraint::Length(35),
-                ];
-
-                let header_row = Row::new(vec![
-                    Cell::from("  LOCATION").style(Style::default().fg(Color::DarkGray)),
-                    Cell::from("").style(Style::default().fg(Color::DarkGray)),
-                    Cell::from("  TIME").style(Style::default().fg(Color::DarkGray)),
-                ])
-                .height(1);
-
-                let mut data_rows = Vec::new();
-                let mut tracked_zones = app_state.world_clocks().clone();
-
-                let baseline_str = format!("{:?}", &app_state.active_tz).replace("::", "/");
-                if !tracked_zones.contains(&baseline_str) {
-                    tracked_zones.insert(0, baseline_str.clone());
-                }
-
-                for zone_str in tracked_zones {
-                    let target_tz: Tz = match zone_str.parse::<Tz>() {
-                        Ok(t) => t,
-                        Err(_) => continue,
-                    };
-
-                    let z_now = Utc::now().with_timezone(&target_tz);
-                    let base_now = Utc::now().with_timezone(&app_state.active_tz);
-
-                    let clean_city = utils::tz_city_name(target_tz).to_uppercase();
-
-                    let base_offset_secs = base_now.offset().fix().local_minus_utc();
-                    let target_offset_secs = z_now.offset().fix().local_minus_utc();
-                    let diff_secs = target_offset_secs - base_offset_secs;
-                    let diff_hours = diff_secs / 3600;
-
-                    let diff_str = if diff_hours == 0 {
-                        "".to_string()
-                    } else if diff_hours > 0 {
-                        format!("+{}h", diff_hours)
-                    } else {
-                        format!("{}h", diff_hours)
-                    };
-
-                    let is_primary = target_tz == app_state.active_tz;
-
-                    let current_hour = z_now.hour();
-
-                    let daylight_start_hour = app_state.daylight_start;
-                    let daylight_end_hour = app_state.daylight_end;
-
-                    let is_daylight = if daylight_start_hour <= daylight_end_hour {
-                        current_hour >= daylight_start_hour && current_hour < daylight_end_hour
-                    } else {
-                        // Handles overnight shifts gracefully if someone sets e.g. start=22, end=6
-                        current_hour >= daylight_start_hour || current_hour < daylight_end_hour
-                    };
-
-                    let main_color = if is_daylight {
-                        if is_primary {
-                            Color::Yellow
-                        } else {
-                            Color::White
-                        }
-                    } else {
-                        if is_primary {
-                            Color::Cyan
-                        } else {
-                            Color::LightCyan
-                        }
-                    };
-
-                    let (dot_char, dot_color) = if is_daylight {
-                        ("○ ", Color::Yellow)
-                    } else {
-                        ("  ", Color::Blue)
-                    };
-
-                    let mut city_style = Style::default().fg(main_color);
-                    if is_primary {
-                        city_style = city_style.add_modifier(Modifier::BOLD);
-                    }
-                    let diff_style = Style::default().fg(Color::DarkGray);
-
-                    let time_cell_content = Line::from(vec![
-                        Span::styled(dot_char, Style::default().fg(dot_color)),
-                        Span::styled(
-                            z_now.format("%H:%M ").to_string(),
-                            Style::default().fg(main_color),
-                        ),
-                        Span::styled(
-                            z_now.format("%a, %b %d").to_string(),
-                            Style::default().fg(Color::DarkGray),
-                        ),
-                    ]);
-
-                    data_rows.push(
-                        Row::new(vec![
-                            Cell::from(format!("  {}", clean_city)).style(city_style),
-                            Cell::from(diff_str).style(diff_style),
-                            Cell::from(time_cell_content),
-                        ])
-                        .height(1),
-                    );
-                }
-
-                let world_table = Table::new(data_rows, column_widths)
-                    .header(header_row)
-                    .block(Block::default().borders(Borders::NONE))
-                    .style(Style::default());
-
-                let current_width = frame.area().width;
-
-                let table_area = if current_width > 80 {
-                    // If terminal window is wide, wrap it in a centered horizontal layout constraint block
-                    let horizontal_padding = (current_width.saturating_sub(80)) / 2;
-
-                    let layout_split = Layout::default()
-                        .direction(Direction::Horizontal)
-                        .constraints([
-                            Constraint::Length(horizontal_padding),
-                            Constraint::Length(80),
-                            Constraint::Length(horizontal_padding),
-                        ])
-                        .split(main_chunks[1]);
-
-                    layout_split[1]
-                } else {
-                    main_chunks[1]
-                };
-
-                frame.render_widget(world_table, table_area);
-
-                "".to_string()
+                self.draw_world_table(frame, app_state, main_chunks[1]);
+                None
             }
         };
 
-        let mut spans_row = Vec::new();
-        for ch in display_str.chars() {
-            let is_separator = ch == ':' || ch == '.';
-            let mut lines = vec![String::new(); 5];
-            if let Some((_, pattern)) = FONT.iter().find(|(c, _)| *c == ch) {
-                for row in 0..5 {
-                    lines[row].push_str(pattern[row]);
-                    lines[row].push(' ');
+        if let Some(display_str) = display_str {
+            let mut spans_row = Vec::new();
+            for ch in display_str.chars() {
+                let is_separator = ch == ':' || ch == '.';
+                let mut lines = vec![String::new(); 5];
+                if let Some((_, pattern)) = FONT.iter().find(|(c, _)| *c == ch) {
+                    for row in 0..5 {
+                        lines[row].push_str(pattern[row]);
+                        lines[row].push(' ');
+                    }
                 }
+                spans_row.push((lines, is_separator));
             }
 
-            spans_row.push((lines, is_separator));
-        }
-
-        let mut final_lines: Vec<Line> = Vec::new();
-        for row in 0..5 {
-            let mut row_spans = Vec::new();
-            for (lines, is_sep) in &spans_row {
-                let color = if *is_sep { Color::DarkGray } else { text_color };
-                row_spans.push(Span::styled(lines[row].clone(), Style::default().fg(color)));
+            let mut final_lines: Vec<Line> = Vec::new();
+            for row in 0..5 {
+                let mut row_spans = Vec::new();
+                for (lines, is_sep) in &spans_row {
+                    let color = if *is_sep { Color::DarkGray } else { text_color };
+                    row_spans.push(Span::styled(lines[row].clone(), Style::default().fg(color)));
+                }
+                final_lines.push(Line::from(row_spans));
             }
-            final_lines.push(Line::from(row_spans));
+            let clock_widget = Paragraph::new(final_lines)
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(text_color));
+            frame.render_widget(clock_widget, clock_chunks[1]);
         }
-        let clock_widget = Paragraph::new(final_lines)
-            .alignment(Alignment::Center)
-            .style(Style::default().fg(text_color));
-        frame.render_widget(clock_widget, clock_chunks[1]);
 
         if app_state.active_mode() == AppMode::Stopwatch && !app_state.stopwatch().laps().is_empty()
         {
@@ -554,6 +422,129 @@ impl Renderer {
         if app_state.show_help {
             self.draw_help_overlay(frame, app_state);
         }
+    }
+
+    fn draw_world_table(&self, frame: &mut Frame, app_state: &appstate::AppState, area: Rect) {
+        let column_widths = [
+            Constraint::Min(0),
+            Constraint::Length(5),
+            Constraint::Length(35),
+        ];
+
+        let header_row = Row::new(vec![
+            Cell::from("  LOCATION").style(Style::default().fg(Color::DarkGray)),
+            Cell::from("").style(Style::default().fg(Color::DarkGray)),
+            Cell::from("  TIME").style(Style::default().fg(Color::DarkGray)),
+        ])
+        .height(1);
+
+        let mut data_rows = Vec::new();
+        let mut tracked_zones = app_state.world_clocks().clone();
+
+        let baseline_str = format!("{:?}", &app_state.active_tz).replace("::", "/");
+        if !tracked_zones.contains(&baseline_str) {
+            tracked_zones.insert(0, baseline_str.clone());
+        }
+
+        for zone_str in tracked_zones {
+            let target_tz: Tz = match zone_str.parse::<Tz>() {
+                Ok(t) => t,
+                Err(_) => continue,
+            };
+
+            let z_now = Utc::now().with_timezone(&target_tz);
+            let base_now = Utc::now().with_timezone(&app_state.active_tz);
+
+            let clean_city = utils::tz_city_name(target_tz).to_uppercase();
+
+            let base_offset_secs = base_now.offset().fix().local_minus_utc();
+            let target_offset_secs = z_now.offset().fix().local_minus_utc();
+            let diff_secs = target_offset_secs - base_offset_secs;
+            let diff_hours = diff_secs / 3600;
+
+            let diff_str = if diff_hours == 0 {
+                "".to_string()
+            } else if diff_hours > 0 {
+                format!("+{}h", diff_hours)
+            } else {
+                format!("{}h", diff_hours)
+            };
+
+            let is_primary = target_tz == app_state.active_tz;
+            let current_hour = z_now.hour();
+            let daylight_start_hour = app_state.daylight_start;
+            let daylight_end_hour = app_state.daylight_end;
+
+            let is_daylight = if daylight_start_hour <= daylight_end_hour {
+                current_hour >= daylight_start_hour && current_hour < daylight_end_hour
+            } else {
+                // Handles overnight shifts gracefully if someone sets e.g. start=22, end=6
+                current_hour >= daylight_start_hour || current_hour < daylight_end_hour
+            };
+
+            let main_color = if is_daylight {
+                if is_primary { Color::Yellow } else { Color::White }
+            } else {
+                if is_primary { Color::Cyan } else { Color::LightCyan }
+            };
+
+            let (dot_char, dot_color) = if is_daylight {
+                ("○ ", Color::Yellow)
+            } else {
+                ("  ", Color::Blue)
+            };
+
+            let mut city_style = Style::default().fg(main_color);
+            if is_primary {
+                city_style = city_style.add_modifier(Modifier::BOLD);
+            }
+            let diff_style = Style::default().fg(Color::DarkGray);
+
+            let time_cell_content = Line::from(vec![
+                Span::styled(dot_char, Style::default().fg(dot_color)),
+                Span::styled(
+                    z_now.format("%H:%M ").to_string(),
+                    Style::default().fg(main_color),
+                ),
+                Span::styled(
+                    z_now.format("%a, %b %d").to_string(),
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ]);
+
+            data_rows.push(
+                Row::new(vec![
+                    Cell::from(format!("  {}", clean_city)).style(city_style),
+                    Cell::from(diff_str).style(diff_style),
+                    Cell::from(time_cell_content),
+                ])
+                .height(1),
+            );
+        }
+
+        let world_table = Table::new(data_rows, column_widths)
+            .header(header_row)
+            .block(Block::default().borders(Borders::NONE))
+            .style(Style::default());
+
+        let current_width = frame.area().width;
+        let table_area = if current_width > 80 {
+            // If terminal window is wide, center it within an 80-column block
+            let horizontal_padding = (current_width.saturating_sub(80)) / 2;
+            let layout_split = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Length(horizontal_padding),
+                    Constraint::Length(80),
+                    Constraint::Length(horizontal_padding),
+                ])
+                .split(area);
+            layout_split[1]
+        } else {
+            area
+        };
+
+        frame.render_widget(world_table, table_area);
     }
 
     pub fn draw_help_overlay(&self, frame: &mut Frame, state: &appstate::AppState) {
