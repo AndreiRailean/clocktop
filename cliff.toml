@@ -74,6 +74,8 @@ commit_parsers = [
     { body = ".*security", group = "<!-- 8 -->🛡️ Security" },
     { message = "^revert", group = "<!-- 9 -->◀️ Revert" },
     { message = ".*", group = "<!-- 10 -->💼 Other" },
+    { footer = "^changelog: ?ignore", skip = true },
+    { message = ".*\\[skip changelog\\]", skip = true }
 ]
 # Exclude commits that are not matched by any commit parser.
 filter_commits = false
