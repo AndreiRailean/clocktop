@@ -362,11 +362,19 @@ impl Renderer {
             AppMode::Clock => {
                 if app_state.timer().is_running() {
                     let (hours, minutes, seconds) = app_state.timer().remaining_time_parts();
-                    let _ = write!(
-                        self.mode_menu_buffer,
-                        "Timer Running: {:02}:{:02}:{:02}",
-                        hours, minutes, seconds
-                    );
+                    if hours > 0 {
+                        let _ = write!(
+                            self.mode_menu_buffer,
+                            "Timer Running: {:02}:{:02}:{:02}",
+                            hours, minutes, seconds
+                        );
+                    } else {
+                        let _ = write!(
+                            self.mode_menu_buffer,
+                            "Timer Running: {:02}:{:02}",
+                            minutes, seconds
+                        );
+                    }
                     needs_sep = true;
                 }
 
@@ -379,11 +387,19 @@ impl Renderer {
                     let hours = total_secs / 3600;
                     let minutes = (total_secs % 3600) / 60;
                     let seconds = total_secs % 60;
-                    let _ = write!(
-                        self.mode_menu_buffer,
-                        "Stopwatch Running: {:02}:{:02}:{:02}",
-                        hours, minutes, seconds
-                    );
+                    if hours > 0 {
+                        let _ = write!(
+                            self.mode_menu_buffer,
+                            "Stopwatch Running: {:02}:{:02}:{:02}",
+                            hours, minutes, seconds
+                        );
+                    } else {
+                        let _ = write!(
+                            self.mode_menu_buffer,
+                            "Stopwatch Running: {:02}:{:02}",
+                            minutes, seconds
+                        );
+                    }
                 }
             }
             AppMode::Countdown => match app_state.timer().state() {
