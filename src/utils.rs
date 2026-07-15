@@ -18,6 +18,16 @@ pub fn resolve_timezone(input_tz: &str) -> Tz {
     chrono_tz::UTC
 }
 
+/// Returns the display city name for a timezone, e.g. `Tz::America__New_York` → `"New York"`.
+pub fn tz_city_name(tz: Tz) -> String {
+    let zone_name = format!("{:?}", tz);
+    zone_name
+        .split('/')
+        .next_back()
+        .unwrap_or(&zone_name)
+        .replace('_', " ")
+}
+
 pub fn format_stopwatch_duration(elapsed: Duration, force_hours: bool) -> String {
     let total_secs = elapsed.as_secs();
     let hours = total_secs / 3600;
@@ -87,5 +97,18 @@ mod tests {
         let resolved = resolve_timezone("Invalid/Timezone");
         // Must resolve to some timezone, typically UTC or system local Tz
         assert!(!resolved.name().is_empty());
+    }
+
+    #[test]
+    fn test_tz_city_name() {
+        // Underscores replaced with spaces, only the city part after the last slash
+        assert_eq!(tz_city_name(chrono_tz::America::New_York), "New York");
+        assert_eq!(tz_city_name(chrono_tz::Australia::Lord_Howe), "Lord Howe");
+
+        // Single-component zone — no slash, whole name used as-is
+        assert_eq!(tz_city_name(chrono_tz::UTC), "UTC");
+
+        // Zone whose city segment has no underscores
+        assert_eq!(tz_city_name(chrono_tz::Europe::London), "London");
     }
 }

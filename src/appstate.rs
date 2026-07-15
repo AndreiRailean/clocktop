@@ -276,7 +276,7 @@ impl AppState {
             self.active_mode = AppMode::Countdown;
         }
 
-        if self.active_mode == AppMode::Stopwatch && self.stopwatch.is_running() {
+        if self.stopwatch.is_running() {
             self.stopwatch.tick(delta);
         }
         self.last_tick = now_instant;
@@ -300,7 +300,7 @@ impl AppState {
     }
 
     pub fn help_scroll_down(&mut self) {
-        let max_idx = renderer::get_help_manifest().len() - 1;
+        let max_idx = renderer::HELP_MANIFEST.len() - 1;
         if self.help_scroll_index < max_idx {
             self.help_scroll_index += 1;
         }

@@ -42,6 +42,8 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 
 #[derive(Default, Debug)]
 pub struct Renderer {
+    /// Reused across frames to avoid a heap allocation every tick at 60 fps.
+    /// Cleared at the start of each render pass; `clear()` retains capacity.
     mode_menu_buffer: String,
 }
 
@@ -77,13 +79,7 @@ impl Renderer {
         let second = zoned_now.second();
         let milli = zoned_now.nanosecond() / 1_000_000;
 
-        let zone_name = format!("{:?}", &app_state.active_tz);
-        let city_clean = zone_name
-            .split("/")
-            .last()
-            .unwrap_or(&zone_name)
-            .replace('_', " ");
-        let header_label = format!("{} ", city_clean.to_uppercase());
+        let header_label = format!("{} ", utils::tz_city_name(app_state.active_tz).to_uppercase());
         let header_date = zoned_now.format("%a, %b %d, %Y").to_string();
 
         let mut text_color = Color::Gray;
@@ -197,13 +193,7 @@ impl Renderer {
                     let z_now = Utc::now().with_timezone(&target_tz);
                     let base_now = Utc::now().with_timezone(&app_state.active_tz);
 
-                    let zone_name = format!("{:?}", target_tz);
-                    let clean_city = zone_name
-                        .split("/")
-                        .last()
-                        .unwrap_or(&zone_name)
-                        .replace('_', " ")
-                        .to_uppercase();
+                    let clean_city = utils::tz_city_name(target_tz).to_uppercase();
 
                     let base_offset_secs = base_now.offset().fix().local_minus_utc();
                     let target_offset_secs = z_now.offset().fix().local_minus_utc();
@@ -384,7 +374,16 @@ impl Renderer {
                     if needs_sep {
                         self.mode_menu_buffer.push_str(" | ");
                     }
-                    self.mode_menu_buffer.push_str("Stopwatch Running");
+                    let elapsed = app_state.stopwatch().elapsed();
+                    let total_secs = elapsed.as_secs();
+                    let hours = total_secs / 3600;
+                    let minutes = (total_secs % 3600) / 60;
+                    let seconds = total_secs % 60;
+                    let _ = write!(
+                        self.mode_menu_buffer,
+                        "Stopwatch Running: {:02}:{:02}:{:02}",
+                        hours, minutes, seconds
+                    );
                 }
             }
             AppMode::Countdown => match app_state.timer().state() {
@@ -550,7 +549,7 @@ impl Renderer {
         let overlay_area = centered_rect(80, 80, frame.area());
 
         // 2. Fetch data rows and convert them to rich styled elements
-        let manifest = get_help_manifest();
+        let manifest = HELP_MANIFEST;
         let items: Vec<ListItem> = manifest
             .iter()
             .map(|row| {
@@ -618,8 +617,8 @@ pub struct HelpRow {
     category: &'static str,
 }
 
-pub fn get_help_manifest() -> Vec<HelpRow> {
-    vec![
+pub const HELP_MANIFEST: &[HelpRow] = &[
+
         // --- GLOBAL / CLOCK MODE ---
         HelpRow {
             is_header: true,
@@ -719,5 +718,4 @@ pub fn get_help_manifest() -> Vec<HelpRow> {
             description: "Toggle historic lap overlay viewer",
             category: "Stopwatch",
         },
-    ]
-}
+];
