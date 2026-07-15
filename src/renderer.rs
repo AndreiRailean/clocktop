@@ -312,26 +312,17 @@ impl Renderer {
         };
 
         let mut spans_row = Vec::new();
-        let mut current_idx = 0;
-
-        while current_idx < display_str.len() {
-            let next_char = &display_str[current_idx..current_idx + 1];
-            let is_separator = next_char == ":" || next_char == ".";
-            let len = 1;
-
-            let sub_str = &display_str[current_idx..current_idx + len];
+        for ch in display_str.chars() {
+            let is_separator = ch == ':' || ch == '.';
             let mut lines = vec![String::new(); 5];
-            for ch in sub_str.chars() {
-                if let Some((_, pattern)) = FONT.iter().find(|(c, _)| **c == ch) {
-                    for row in 0..5 {
-                        lines[row].push_str(pattern[row]);
-                        lines[row].push(' ');
-                    }
+            if let Some((_, pattern)) = FONT.iter().find(|(c, _)| *c == ch) {
+                for row in 0..5 {
+                    lines[row].push_str(pattern[row]);
+                    lines[row].push(' ');
                 }
             }
 
             spans_row.push((lines, is_separator));
-            current_idx += len;
         }
 
         let mut final_lines: Vec<Line> = Vec::new();

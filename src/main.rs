@@ -24,6 +24,23 @@ use std::io::{self, stdout};
 use std::process;
 use std::time::Instant;
 
+struct RawModeGuard;
+
+impl RawModeGuard {
+    fn new() -> io::Result<Self> {
+        enable_raw_mode()?;
+        stdout().execute(EnterAlternateScreen)?;
+        Ok(RawModeGuard)
+    }
+}
+
+impl Drop for RawModeGuard {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+        let _ = stdout().execute(LeaveAlternateScreen);
+    }
+}
+
 fn main() -> io::Result<()> {
     let cli_args = cli::Cli::load();
 
@@ -66,8 +83,15 @@ fn main() -> io::Result<()> {
         });
     };
 
-    enable_raw_mode()?;
-    stdout().execute(EnterAlternateScreen)?;
+    // Restore terminal on panic
+    let original_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        let _ = disable_raw_mode();
+        let _ = stdout().execute(LeaveAlternateScreen);
+        original_hook(panic_info);
+    }));
+
+    let _guard = RawModeGuard::new()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
 
     let mut last_tick = Instant::now();
@@ -195,7 +219,5 @@ fn main() -> io::Result<()> {
         let _ = terminal.draw(|frame| renderer.render(frame, &app_state));
     }
 
-    disable_raw_mode()?;
-    stdout().execute(LeaveAlternateScreen)?;
     Ok(())
 }
