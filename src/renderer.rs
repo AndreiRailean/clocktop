@@ -79,7 +79,10 @@ impl Renderer {
         let second = zoned_now.second();
         let milli = zoned_now.nanosecond() / 1_000_000;
 
-        let header_label = format!("{} ", utils::tz_city_name(app_state.active_tz).to_uppercase());
+        let header_label = format!(
+            "{} ",
+            utils::tz_city_name(app_state.active_tz).to_uppercase()
+        );
         let header_date = zoned_now.format("%a, %b %d, %Y").to_string();
 
         let mut text_color = Color::Gray;
@@ -159,7 +162,10 @@ impl Renderer {
                     StopwatchState::Paused => text_color = Color::Yellow,
                     StopwatchState::Running => text_color = Color::LightCyan,
                 }
-                Some(utils::format_stopwatch_duration(app_state.stopwatch().elapsed(), false))
+                Some(utils::format_stopwatch_duration(
+                    app_state.stopwatch().elapsed(),
+                    false,
+                ))
             }
 
             AppMode::World => {
@@ -483,9 +489,17 @@ impl Renderer {
             };
 
             let main_color = if is_daylight {
-                if is_primary { Color::Yellow } else { Color::White }
+                if is_primary {
+                    Color::Yellow
+                } else {
+                    Color::White
+                }
             } else {
-                if is_primary { Color::Cyan } else { Color::LightCyan }
+                if is_primary {
+                    Color::Cyan
+                } else {
+                    Color::LightCyan
+                }
             };
 
             let (dot_char, dot_color) = if is_daylight {
@@ -625,104 +639,103 @@ pub struct HelpRow {
 }
 
 pub const HELP_MANIFEST: &[HelpRow] = &[
-
-        // --- GLOBAL / CLOCK MODE ---
-        HelpRow {
-            is_header: true,
-            shortcut: "",
-            description: "--- Global & Clock Controls ---",
-            category: "Global",
-        },
-        HelpRow {
-            is_header: false,
-            shortcut: " Esc ",
-            description: "Cycle view mode panels forward",
-            category: "Global",
-        },
-        HelpRow {
-            is_header: false,
-            shortcut: "  ?  ",
-            description: "Toggle this interactive help panel",
-            category: "Global",
-        },
-        HelpRow {
-            is_header: false,
-            shortcut: "  q  ",
-            description: "Quit",
-            category: "Global",
-        },
-        HelpRow {
-            is_header: false,
-            shortcut: "  1  ",
-            description: "Clock mode",
-            category: "Global",
-        },
-        HelpRow {
-            is_header: false,
-            shortcut: "  2  ",
-            description: "Timer mode",
-            category: "Global",
-        },
-        HelpRow {
-            is_header: false,
-            shortcut: "  3  ",
-            description: "Stopwatch mode",
-            category: "Global",
-        },
-        HelpRow {
-            is_header: false,
-            shortcut: "  4  ",
-            description: "World Clock mode",
-            category: "Global",
-        },
-        // --- TIMER MODE ---
-        HelpRow {
-            is_header: true,
-            shortcut: "",
-            description: "--- Timer Controls ---",
-            category: "Timer",
-        },
-        HelpRow {
-            is_header: false,
-            shortcut: "Space",
-            description: "Toggle timer (Start/Pause)",
-            category: "Timer",
-        },
-        HelpRow {
-            is_header: false,
-            shortcut: "  r  ",
-            description: "Reset and restart timer",
-            category: "Timer",
-        },
-        // --- STOPWATCH MODE ---
-        HelpRow {
-            is_header: true,
-            shortcut: "",
-            description: "--- Stopwatch Controls ---",
-            category: "Stopwatch",
-        },
-        HelpRow {
-            is_header: false,
-            shortcut: "Space",
-            description: "Toggle stopwatch ticker (Start/Pause)",
-            category: "Stopwatch",
-        },
-        HelpRow {
-            is_header: false,
-            shortcut: "  l  ",
-            description: "Record split lap fragment duration",
-            category: "Stopwatch",
-        },
-        HelpRow {
-            is_header: false,
-            shortcut: "  r  ",
-            description: "Reset stopwatch accumulator values to zero",
-            category: "Stopwatch",
-        },
-        HelpRow {
-            is_header: false,
-            shortcut: "Enter",
-            description: "Toggle historic lap overlay viewer",
-            category: "Stopwatch",
-        },
+    // --- GLOBAL / CLOCK MODE ---
+    HelpRow {
+        is_header: true,
+        shortcut: "",
+        description: "--- Global & Clock Controls ---",
+        category: "Global",
+    },
+    HelpRow {
+        is_header: false,
+        shortcut: " Esc ",
+        description: "Cycle view mode panels forward",
+        category: "Global",
+    },
+    HelpRow {
+        is_header: false,
+        shortcut: "  ?  ",
+        description: "Toggle this interactive help panel",
+        category: "Global",
+    },
+    HelpRow {
+        is_header: false,
+        shortcut: "  q  ",
+        description: "Quit",
+        category: "Global",
+    },
+    HelpRow {
+        is_header: false,
+        shortcut: "  1  ",
+        description: "Clock mode",
+        category: "Global",
+    },
+    HelpRow {
+        is_header: false,
+        shortcut: "  2  ",
+        description: "Timer mode",
+        category: "Global",
+    },
+    HelpRow {
+        is_header: false,
+        shortcut: "  3  ",
+        description: "Stopwatch mode",
+        category: "Global",
+    },
+    HelpRow {
+        is_header: false,
+        shortcut: "  4  ",
+        description: "World Clock mode",
+        category: "Global",
+    },
+    // --- TIMER MODE ---
+    HelpRow {
+        is_header: true,
+        shortcut: "",
+        description: "--- Timer Controls ---",
+        category: "Timer",
+    },
+    HelpRow {
+        is_header: false,
+        shortcut: "Space",
+        description: "Toggle timer (Start/Pause)",
+        category: "Timer",
+    },
+    HelpRow {
+        is_header: false,
+        shortcut: "  r  ",
+        description: "Reset and restart timer",
+        category: "Timer",
+    },
+    // --- STOPWATCH MODE ---
+    HelpRow {
+        is_header: true,
+        shortcut: "",
+        description: "--- Stopwatch Controls ---",
+        category: "Stopwatch",
+    },
+    HelpRow {
+        is_header: false,
+        shortcut: "Space",
+        description: "Toggle stopwatch ticker (Start/Pause)",
+        category: "Stopwatch",
+    },
+    HelpRow {
+        is_header: false,
+        shortcut: "  l  ",
+        description: "Record split lap fragment duration",
+        category: "Stopwatch",
+    },
+    HelpRow {
+        is_header: false,
+        shortcut: "  r  ",
+        description: "Reset stopwatch accumulator values to zero",
+        category: "Stopwatch",
+    },
+    HelpRow {
+        is_header: false,
+        shortcut: "Enter",
+        description: "Toggle historic lap overlay viewer",
+        category: "Stopwatch",
+    },
 ];
