@@ -37,3 +37,5 @@ panic = 'abort'
 inherits = "release"
 lto = "thin"
 
+max_width = 120
+

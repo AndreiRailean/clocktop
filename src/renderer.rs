@@ -447,7 +447,7 @@ impl Renderer {
         let mut data_rows = Vec::new();
         let mut tracked_zones = app_state.world_clocks().clone();
 
-        let baseline_str = format!("{:?}", &app_state.active_tz).replace("::", "/");
+        let baseline_str = format!("{:?}", app_state.active_tz).replace("::", "/");
         if !tracked_zones.contains(&baseline_str) {
             tracked_zones.insert(0, baseline_str.clone());
         }
